@@ -13,8 +13,7 @@ LLM_GATEWAY_URL = "https://api-llm.openclawd.co"
 
 [[kv_namespaces]]
 binding = "RATE_LIMIT"
-# TODO(cindy): 用 `wrangler kv namespace create tickets-rate-limit` 生成后回填 id。
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "4b68006a474145d3aabd36ea05d5265d"  # tickets-rate-limit, cindy 2026-08-16 创建回填
 
 [durable_objects]
 bindings = [
