@@ -1,0 +1,400 @@
+/* ============================================================
+   tickets — 电影票根生成器
+   设计方向：vintage cinema ticket stub（复古电影票根）
+   词汇参考 impeccable.style：
+     - grotesque 展示字 + mono 票面字段（禁用衬线，SPEC-345 硬约束）
+     - 暖纸张 + 墨水 + 单一影院红强调色（绝无紫蓝渐变 / 玻璃拟态 / 霓虹）
+     - 现代 CSS：oklch / clamp
+   ============================================================ */
+
+:root {
+  /* 纸张（票根纸）——不是纯白，是暖奶油库存纸 */
+  --paper: oklch(0.957 0.013 84);
+  --paper-deep: oklch(0.912 0.02 82);
+  --paper-card: oklch(0.972 0.011 82);
+
+  /* 墨水（暖近黑，不是 #000） */
+  --ink: oklch(0.235 0.016 68);
+  --ink-soft: oklch(0.44 0.018 68);
+  --ink-faint: oklch(0.60 0.016 70);
+
+  /* 分隔线 */
+  --line: oklch(0.78 0.02 78);
+
+  /* 影院红（唯一强调色） */
+  --accent: oklch(0.55 0.19 26);
+  --accent-deep: oklch(0.45 0.18 26);
+  --accent-tint: oklch(0.955 0.035 26);
+
+  --font-display: "Archivo", "Helvetica Neue", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+
+  --measure: 34rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-display);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* 极淡的纸张颗粒：真正的票根纸是有纤维的 */
+  background-image: radial-gradient(oklch(0.4 0.02 80 / 0.035) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/* ============ 布局 ============ */
+
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: clamp(2.5rem, 7vw, 5rem) 1.25rem 3rem;
+}
+
+.container {
+  width: 100%;
+  max-width: var(--measure);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(1.5rem, 3.5vw, 2.25rem);
+}
+
+/* ============ 头部 ============ */
+
+.masthead {
+  text-align: center;
+}
+
+.wordmark {
+  font-size: clamp(2.1rem, 6vw, 3.1rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.wordmark .dot {
+  color: var(--accent);
+}
+
+.tagline {
+  margin: 0.8rem 0 0;
+  color: var(--ink-soft);
+  font-size: clamp(0.95rem, 2.6vw, 1.05rem);
+  letter-spacing: 0.04em;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 0.9rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.eyebrow::before,
+.eyebrow::after {
+  content: "";
+  height: 1px;
+  width: 1.6rem;
+  background: var(--line);
+}
+
+/* ============ 表单（票根风格） ============ */
+
+.form {
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: clamp(1.25rem, 4vw, 1.75rem);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.55),
+    0 1px 2px oklch(0.3 0.02 60 / 0.05);
+  /* 票根撕边：上下两条虚线齿孔 */
+  position: relative;
+}
+
+.form::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -6px;
+  height: 12px;
+  background-image: radial-gradient(circle, var(--paper) 3.2px, transparent 3.6px);
+  background-size: 16px 12px;
+  background-position: 8px center;
+  pointer-events: none;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.field + .field {
+  margin-top: 1.15rem;
+}
+
+.field label {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.field label .req {
+  color: var(--accent);
+}
+
+.input {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.8rem 0.9rem;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px oklch(0.55 0.19 26 / 0.12);
+}
+
+.input::placeholder {
+  color: var(--ink-faint);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.9rem;
+  margin-top: 1.15rem;
+}
+
+/* ============ 按钮 ============ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  width: 100%;
+  margin-top: 1.4rem;
+  padding: 0.9rem 1.2rem;
+  border: none;
+  border-radius: 4px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 100ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: oklch(0.985 0.005 26);
+  box-shadow: 0 2px 0 var(--accent-deep);
+}
+
+.btn-primary:not(:disabled):hover {
+  background: oklch(0.58 0.19 26);
+}
+
+.btn-primary:not(:disabled):active {
+  transform: translateY(1px);
+  box-shadow: 0 1px 0 var(--accent-deep);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  box-shadow: none;
+}
+
+.btn-ghost:not(:disabled):hover {
+  border-color: var(--ink-soft);
+}
+
+/* ============ 结果票根 ============ */
+
+.ticket-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.status {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+
+.status .pct {
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ticket {
+  position: relative;
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px oklch(0.3 0.02 60 / 0.06);
+}
+
+.ticket img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+}
+
+/* 票根打孔圆口 + 撕边（左缘） */
+.ticket::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -6px;
+  width: 12px;
+  height: 12px;
+  transform: translateY(-50%);
+  border-radius: 50%;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  box-shadow: 0 0 0 4px var(--paper);
+}
+
+.ticket::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 14px;
+  background-image: radial-gradient(circle, var(--paper) 3.4px, transparent 3.8px);
+  background-size: 16px 14px;
+  background-position: 8px center;
+  pointer-events: none;
+}
+
+/* 骨架屏（生成中）——票根轮廓 + 轻微 shimmer */
+.skeleton {
+  aspect-ratio: 3 / 2;
+  background:
+    linear-gradient(100deg, transparent 38%, oklch(1 0 0 / 0.4) 50%, transparent 62%),
+    var(--paper-deep);
+  background-size: 220% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 180% 0; }
+  100% { background-position: -60% 0; }
+}
+
+.actions {
+  display: flex;
+  gap: 0.8rem;
+}
+
+.actions .btn {
+  margin-top: 0;
+}
+
+/* ============ 错误 / 配额 ============ */
+
+.error {
+  text-align: center;
+  font-size: 0.88rem;
+  color: var(--accent-deep);
+}
+
+.quota {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+}
+
+.quota .num {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============ 页脚 ============ */
+
+.footer {
+  margin-top: auto;
+  padding-top: 2.5rem;
+  text-align: center;
+}
+
+.footer a {
+  color: var(--ink-faint);
+  text-decoration: none;
+  font-size: 0.74rem;
+  letter-spacing: 0.1em;
+}
+
+.footer a:hover {
+  color: var(--ink-soft);
+}
+
+.error + .quota,
+.status + .ticket-stage {
+  margin-top: 0;
+}
+
+/* ============ 动效 ============ */
+
+.fade-in {
+  animation: fadeIn 360ms ease-out both;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+  .fade-in { animation: none; }
+  * { transition: none !important; }
+}

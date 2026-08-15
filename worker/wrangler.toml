@@ -1,0 +1,29 @@
+name = "tickets-worker"
+main = "src/index.ts"
+compatibility_date = "2024-12-18"
+
+routes = [
+  { pattern = "api-tickets.openclawd.co/*", zone_name = "openclawd.co" }
+]
+
+[vars]
+ENVIRONMENT = "production"
+# SPEC-345: LLM API Gateway。仅 URL，访问凭证走 LLM_SERVICE_TOKEN secret。
+LLM_GATEWAY_URL = "https://api-llm.openclawd.co"
+
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+# TODO(cindy): 用 `wrangler kv namespace create tickets-rate-limit` 生成后回填 id。
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[durable_objects]
+bindings = [
+  { name = "GENERATION_QUEUE", class_name = "GenerationQueue" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GenerationQueue"]
+
+# Secrets (set via `wrangler secret put`):
+# - LLM_SERVICE_TOKEN   (SPEC-345; 值：SERVICE_TOKEN_TICKETS / cindy deploy 时写入)
