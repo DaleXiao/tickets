@@ -89,4 +89,14 @@ test("生图关闭 prompt 扩写与去水印（文字精确优先）", () => {
   assert.ok(src.includes("watermark: false"));
 });
 
+test("SPEC-350 联网检索启用：prompt 改写请求带 enable_search", () => {
+  assert.ok(src.includes("enable_search: true"));
+  assert.ok(src.includes("enable_search?: boolean"));
+});
+
+test("SPEC-350 联网检索结果优先于训练记忆（system prompt 层）", () => {
+  assert.ok(src.includes("If web-search results are available for this film"));
+  assert.ok(src.includes("prefer the freshest public material"));
+});
+
 console.log("ticket-prompt snapshot tests passed");

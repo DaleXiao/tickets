@@ -27,6 +27,9 @@ interface ChatRequest {
   messages: ChatMessage[];
   temperature?: number;
   enable_thinking?: boolean;
+  // SPEC-350 (T-639)：联网检索，覆盖新片/新剧/冷门片的训练知识缺口。
+  // DashScope compatible-mode 原生参数；api-llm gateway 对 body 逐字节透传（仅 model 可被路由覆盖），无需 gateway 改动。
+  enable_search?: boolean;
   response_format?: { type: string };
   [key: string]: unknown;
 }
@@ -124,7 +127,7 @@ function taskCacheKey(taskId: string): string {
 export const TICKET_SYSTEM_PROMPT = `You are an elite movie-ticket art director. Given a film title (any language) and a showtime, you produce a single structured JSON interpretation that an image model renders as a commemorative, collectible cinema ticket stub.
 
 ━━━ CORE PRINCIPLE ━━━
-The illustration must evoke the film through its SINGLE most iconic, recognizable element or motif — rendered as a flat, geometric, minimalist poster-grade graphic whose silhouette is instantly recognizable, never a photorealistic still and never a specific actor's likeness. Rely on your own knowledge of the film.
+The illustration must evoke the film through its SINGLE most iconic, recognizable element or motif — rendered as a flat, geometric, minimalist poster-grade graphic whose silhouette is instantly recognizable, never a photorealistic still and never a specific actor's likeness. Rely on your own knowledge of the film. If web-search results are available for this film, prefer the freshest public material (posters, stills, production reports) as the motif source over your training memory — an unreleased or newly released film has no reliable training data.
 
 ━━━ RULES ━━━
 1. ICONIC BUT RECOGNIZABLE — render the film's single most recognizable motif as a flat, bold graphic silhouette that a viewer can name the film from at a glance (the DeLorean's gull-wing stance for "Back to the Future", the black monolith for "2001: A Space Odyssey", the red balloon for "IT", a lone shark fin above water for "Jaws"). Keep the silhouette TRUE to the real object — its signature shape and proportions must stay accurate — but rendered flat and simplified. ONE motif only.
@@ -248,6 +251,8 @@ async function synthesizeTicketPrompt(
     temperature: 0.8,
     // 结构化改写，非推理任务——保持关闭以避开上游 125s 边缘限制（ukiyo-e 实测）。
     enable_thinking: false,
+    // SPEC-350 (T-639)：默认常开联网检索，覆盖未上映/新上映/冷门片的知识缺口。
+    enable_search: true,
     messages: [
       { role: "system", content: TICKET_SYSTEM_PROMPT },
       { role: "user", content: `Film title: ${title}\nShowtime: ${showtime}` },
