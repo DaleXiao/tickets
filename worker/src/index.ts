@@ -47,6 +47,7 @@ interface QueueTask {
   taskId: string;
   title: string;
   showtime: string;
+  seat: string;
   ip: string;
   isTestMode: boolean;
   testRemaining?: number;
@@ -123,11 +124,11 @@ function taskCacheKey(taskId: string): string {
 export const TICKET_SYSTEM_PROMPT = `You are an elite movie-ticket art director. Given a film title (any language) and a showtime, you produce a single structured JSON interpretation that an image model renders as a commemorative, collectible cinema ticket stub.
 
 ━━━ CORE PRINCIPLE ━━━
-The illustration must evoke the film through its SINGLE most iconic, recognizable element or motif — reduced to a flat, geometric, minimalist poster-grade ABSTRACT, never a photorealistic still and never a specific actor's likeness. Rely on your own knowledge of the film.
+The illustration must evoke the film through its SINGLE most iconic, recognizable element or motif — rendered as a flat, geometric, minimalist poster-grade graphic whose silhouette is instantly recognizable, never a photorealistic still and never a specific actor's likeness. Rely on your own knowledge of the film.
 
 ━━━ RULES ━━━
-1. ICONIC NOT LITERAL — abstract the film's single most recognizable motif (the black monolith for "2001: A Space Odyssey", the red balloon for "IT", a lone shark fin above water for "Jaws"). ONE motif only.
-2. SIMPLEST POSSIBLE — 1 dominant motif, at most 1 supporting shape. Flat solid fills, no gradients, no texture detail, no depth. Large negative space around the motif. Crowded or busy tickets look cheap and AI-generated.
+1. ICONIC BUT RECOGNIZABLE — render the film's single most recognizable motif as a flat, bold graphic silhouette that a viewer can name the film from at a glance (the DeLorean's gull-wing stance for "Back to the Future", the black monolith for "2001: A Space Odyssey", the red balloon for "IT", a lone shark fin above water for "Jaws"). Keep the silhouette TRUE to the real object — its signature shape and proportions must stay accurate — but rendered flat and simplified. ONE motif only.
+2. SIMPLEST POSSIBLE — 1 dominant motif, at most 1 supporting shape. Flat solid fills, no gradients, no texture detail, no depth. Large negative space around the motif. Abstract in style, accurate in silhouette, instantly nameable. Crowded or busy tickets look cheap and AI-generated.
 3. MINIMALIST POSTER-GRADE — think a 1950s–70s minimalist film poster: a single bold geometric shape against empty field, not a populated scene. Never enumerate a roster of scenes or objects; never stack decorative detail.
 4. TWO TO THREE COLORS — a tight, disciplined palette (2–3 ink colors + the paper). The palette must match the film's emotional register (noir = near-black + one warm accent; comedy = warm cream + one bright; horror = near-black + one blood accent).
 5. NEVER WRITE TEXT — your JSON describes ILLUSTRATION + LAYOUT + PALETTE only. The system injects the film title and showtime strings separately as exact text. You must NOT reproduce or transliterate them.
@@ -140,22 +141,25 @@ Output ONLY valid JSON (no markdown fences, no commentary):
   "palette": "2-3 concrete colors named as hex-like descriptions + the single mood word they create"
 }`;
 
-export function assembleTicketPrompt(title: string, showtime: string, p: TicketPrompt): string {
+export function assembleTicketPrompt(title: string, showtime: string, seat: string, p: TicketPrompt): string {
   return [
     "A flat, graphic, minimalist poster-grade cinema ticket stub illustration, landscape 3:2, printed on warm cream ticket stock with subtle paper-fiber texture and a clean perforated-edge silhouette (a row of small notches on one short side).",
     p.illustration,
     p.layout,
     p.palette,
     "",
-    "The ticket carries EXACTLY THREE lines of typeset text and nothing else.",
+    "The ticket carries EXACTLY FOUR lines of typeset text and nothing else.",
     `Line 1 — the film title, typeset large and elegant in an editorial Didone/Garamond serif, on its own line: "${title}"`,
-    `Line 2 — the showtime, typeset smaller beneath the title in the same serif, clearly subordinated: "${showtime}"`,
+    `Line 2 — the showtime, typeset smaller beneath the title in the same serif, sharing the title's left (or center) alignment axis and clearly subordinated: "${showtime}"`,
     `Line 3 — below both, small and letter-spaced uppercase small-caps, the fixed cinema name: "ELSEWHERE CINEMA"`,
-    "Typeset all three lines with elegant editorial hierarchy: title largest, showtime clearly smaller, cinema name smallest with wide letter-spacing. The typesetting must read like a refined print ticket, not label stickers.",
-    "Do NOT render any field-label words (no 'Film title', no 'Showtime', no 'ADMIT ONE'). Do NOT invent any extra text — no seat numbers, no row/seat lines, no price, no venue name other than ELSEWHERE CINEMA, no date sub-fields, no pseudo-Latin filler, no invented words, no signage. The ONLY readable text on the entire ticket is the three lines above.",
+    `Line 4 — the seat number, small and elegant, in a reserved bottom area, typeset in the same serif and letter-spaced, sharing the same alignment axis: "${seat}"`,
+    "Typeset all four lines with elegant editorial hierarchy: title largest, showtime clearly smaller, cinema name smallest with wide letter-spacing, seat number small and discreet near the bottom. All text lines share one alignment axis (either all left-aligned, or all centered). The typesetting must read like a refined print ticket, not label stickers.",
+    "The entire text block must sit on a clean, unobstructed, plain background area — never overlapping the illustration, the perforation notches, the barcode, or any graphic element. Reserve a dedicated plain band for the typeset lines.",
+    "Do NOT render any field-label words (no 'Film title', no 'Showtime', no 'ADMIT ONE', no 'SEAT'). Do NOT invent any extra text — no price, no venue name other than ELSEWHERE CINEMA, no date sub-fields, no pseudo-Latin filler, no invented words, no signage. The ONLY readable text on the entire ticket is the four lines above.",
     "",
-    "Chinese / Japanese / Korean characters in the three lines must be rendered with complete, correct strokes — never simplified, broken, mirrored, or replaced with look-alike glyphs. Numbers, colons, hyphens and punctuation in the three lines must match exactly, character-for-character.",
-    "No watermark, no signature, no artist credit. The illustration area contains no text and the barcode decodes to no readable characters.",
+    "Along the bottom edge, render a single thin horizontal barcode strip with irregular, random-width vertical black bars (a real ticket stub's barcode). The barcode is decorative: it decodes to no readable characters and contains no text.",
+    "Chinese / Japanese / Korean characters in the text lines must be rendered with complete, correct strokes — never simplified, broken, mirrored, or replaced with look-alike glyphs. Numbers, colons, hyphens, punctuation and the seat number must match exactly, character-for-character.",
+    "No watermark, no signature, no artist credit.",
   ].join("\n");
 }
 
@@ -233,6 +237,7 @@ async function getRemainingQuota(kv: KVNamespace, ip: string): Promise<number> {
 async function synthesizeTicketPrompt(
   title: string,
   showtime: string,
+  seat: string,
   apiKey: string,
   gatewayUrl: string,
   model: string = PROMPT_MODEL
@@ -297,7 +302,7 @@ async function synthesizeTicketPrompt(
     throw new Error(`ticket prompt response missing fields: ${JSON.stringify(parsed)}`);
   }
 
-  return assembleTicketPrompt(title, showtime, parsed);
+  return assembleTicketPrompt(title, showtime, seat, parsed);
 }
 
 // --- 生图 ---
@@ -404,6 +409,7 @@ export class GenerationQueue {
       taskId: string;
       title: string;
       showtime: string;
+      seat: string;
       ip: string;
       isTestMode: boolean;
       promptModel: string;
@@ -431,6 +437,7 @@ export class GenerationQueue {
       taskId: body.taskId,
       title: body.title,
       showtime: body.showtime,
+      seat: body.seat,
       ip: body.ip,
       isTestMode: body.isTestMode,
       testRemaining,
@@ -572,6 +579,7 @@ export class GenerationQueue {
         const prompt = await synthesizeTicketPrompt(
           task.title,
           task.showtime,
+          task.seat,
           this.env.LLM_SERVICE_TOKEN,
           this.env.LLM_GATEWAY_URL,
           task.promptModel
@@ -607,7 +615,7 @@ export class GenerationQueue {
         const isThrottled = errMsg.includes("Throttling") || errMsg.includes("429") || errMsg.includes("[throttled]");
         task.status = "error";
         task.errorMessage = isThrottled ? "服务器繁忙，请稍后重试" : "生成失败，请稍后重试";
-        this.sendToTask(task.taskId, "error", { message: task.errorMessage });
+        this.sendToTask(task.taskId, "error", { code: isThrottled ? "throttled" : "failed", message: task.errorMessage });
         try {
           await this.env.RATE_LIMIT.put(
             taskCacheKey(task.taskId),
@@ -695,20 +703,30 @@ export class GenerationQueue {
 
 // --- Request handlers ---
 
+// 随机座位号（item F）：row A–L（跳过 I，避免与 1 混淆）+ seat 1–20。
+// 语言随 i18n：EN "ROW G · SEAT 12"，ZH "G 排 · 12 座"。
+function generateSeat(lang: string): string {
+  const ROWS = "ABCDEFGHJKL";
+  const row = ROWS[Math.floor(Math.random() * ROWS.length)];
+  const seat = Math.floor(Math.random() * 20) + 1;
+  return lang === "en" ? `ROW ${row} · SEAT ${seat}` : `${row} 排 · ${seat} 座`;
+}
+
 function generateTaskId(): string {
   return `task_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 async function handleGenerate(request: Request, env: Env): Promise<Response> {
-  let body: { title?: string; showtime?: string };
+  let body: { title?: string; showtime?: string; lang?: string };
   try {
-    body = (await request.json()) as { title?: string; showtime?: string };
+    body = (await request.json()) as { title?: string; showtime?: string; lang?: string };
   } catch {
     return jsonResponse({ error: "invalid_input", message: "请提供有效的 JSON 请求体" }, 400);
   }
 
   const title = body.title?.trim();
   const showtime = body.showtime?.trim();
+  const seat = generateSeat(body.lang === "en" ? "en" : "zh");
   if (!title || title.length < 1 || title.length > 120) {
     return jsonResponse({ error: "invalid_input", message: "请输入电影名（1-120 字）" }, 400);
   }
@@ -742,7 +760,7 @@ async function handleGenerate(request: Request, env: Env): Promise<Response> {
       new Request("https://do/enqueue", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskId, title, showtime, ip, isTestMode, promptModel }),
+        body: JSON.stringify({ taskId, title, showtime, seat, ip, isTestMode, promptModel }),
       })
     );
   } catch (e) {

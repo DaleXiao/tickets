@@ -98,6 +98,7 @@ function LangToggle() {
 
 export default function App() {
   const t = useT();
+  const lang = useLang();
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(todayStr());
   const [time, setTime] = useState("20:00");
@@ -218,7 +219,7 @@ export default function App() {
       let message = t("err.generateFailed");
       try {
         const parsed = JSON.parse((e as MessageEvent).data);
-        if (parsed.message) message = parsed.message;
+        if (parsed.code === "throttled") message = t("err.busy");
       } catch {
         // ignore
       }
@@ -280,7 +281,7 @@ export default function App() {
             setLoading(false);
           }, 300);
         } else if (data.state === "error") {
-          setError(data.error || t("err.generateFailed"));
+          setError(t("err.generateFailed"));
           setPhase("error");
           setLoading(false);
           currentTaskIdRef.current = null;
@@ -354,7 +355,7 @@ export default function App() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: trimmed, showtime }),
+        body: JSON.stringify({ title: trimmed, showtime, lang }),
       });
 
       const body: ErrorResponse & EnqueueResponse = await res.json().catch(() => ({} as ErrorResponse));
@@ -362,21 +363,21 @@ export default function App() {
       if (res.status === 429) {
         setRateLimited(true);
         setRemaining(0);
-        setError(body.message || t("err.rateLimited"));
+        setError(t("err.rateLimited"));
         setPhase("error");
         setLoading(false);
         return;
       }
       if (res.status === 503) {
         const busy = body as ErrorResponse & { retryAfter?: number };
-        setError(body.message || t("err.busy"));
+        setError(t("err.busy"));
         setPhase("error");
         setLoading(false);
         startRetryCountdown(busy.retryAfter || 30);
         return;
       }
       if (!res.ok) {
-        setError(body.message || t("err.generateFailed"));
+        setError(t("err.generateFailed"));
         setPhase("error");
         setLoading(false);
         return;
@@ -389,7 +390,7 @@ export default function App() {
       setPhase("error");
       setLoading(false);
     }
-  }, [title, date, time, showtime, t]);
+  }, [title, date, time, showtime, lang, t]);
 
   async function handleDownload() {
     if (!icon) return;
@@ -425,7 +426,7 @@ export default function App() {
 
       <header className="topbar rise">
         <a className="wordmark" href="/" onClick={(e) => e.preventDefault()}>
-          票根<span className="dot">.</span>
+          {t("wordmark")}<span className="dot">.</span>
         </a>
         <div className="top-actions">
           <LangToggle />
@@ -436,7 +437,7 @@ export default function App() {
       <main className="container">
         <section className="hero rise rise-1">
           <span className="eyebrow">Admit One — Cinema Ticket Studio</span>
-          <h1 className="headline serif">凭票入场，纪念一场好电影</h1>
+          <h1 className="headline serif">{t("hero.headline")}</h1>
           <p className="lede">{t("tagline")}</p>
         </section>
 

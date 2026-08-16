@@ -265,6 +265,11 @@ body {
   margin-top: 1.4rem;
 }
 
+/* 修复日期/时间不齐：row 内第二字段不再继承 .field + .field 的纵向 margin */
+.row .field + .field {
+  margin-top: 0;
+}
+
 /* date/time 控件在深色主题下的 calendar icon 适配 */
 .dark .input[type="date"],
 .dark .input[type="time"] {
