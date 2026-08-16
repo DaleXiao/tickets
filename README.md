@@ -3,7 +3,7 @@
 输入片名 + 场次时间，AI 生成一张含抽象电影场景插画的纪念票根图。
 
 - 上线域名：`tickets.openclawd.co`（Cindy 负责 DNS / 部署配置）
-- 前端：Vite + React，复古电影票根设计（impeccable.style，grotesque + mono，禁衬线）
+- 前端：Vite + React，复古电影票根设计（impeccable.style，西文 editorial serif + UI 中文 sans + 禁 emoji）
 - Worker：CF Worker，模型调用全走 `api-llm.openclawd.co` gateway
 
 ## 架构

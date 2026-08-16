@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build && npm run check:dist",
+    "build": "tsc && vite build && npm run check:dist && npm run check:emoji",
     "check:dist": "node scripts/assert-production-dist.mjs",
+    "check:emoji": "node scripts/lint-emoji.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

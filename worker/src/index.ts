@@ -156,6 +156,7 @@ export function assembleTicketPrompt(title: string, showtime: string, seat: stri
     "Typeset all four lines with elegant editorial hierarchy: title largest, showtime clearly smaller, cinema name smallest with wide letter-spacing, seat number small and discreet near the bottom. All text lines share one alignment axis (either all left-aligned, or all centered). The typesetting must read like a refined print ticket, not label stickers.",
     "The entire text block must sit on a clean, unobstructed, plain background area — never overlapping the illustration, the perforation notches, the barcode, or any graphic element. Reserve a dedicated plain band for the typeset lines.",
     "Do NOT render any field-label words (no 'Film title', no 'Showtime', no 'ADMIT ONE', no 'SEAT'). Do NOT invent any extra text — no price, no venue name other than ELSEWHERE CINEMA, no date sub-fields, no pseudo-Latin filler, no invented words, no signage. The ONLY readable text on the entire ticket is the four lines above.",
+    "No emoji, no pictographic or emoticon symbols anywhere on the ticket.",
     "",
     "Along the bottom edge, render a single thin horizontal barcode strip with irregular, random-width vertical black bars (a real ticket stub's barcode). The barcode is decorative: it decodes to no readable characters and contains no text.",
     "Chinese / Japanese / Korean characters in the text lines must be rendered with complete, correct strokes — never simplified, broken, mirrored, or replaced with look-alike glyphs. Numbers, colons, hyphens, punctuation and the seat number must match exactly, character-for-character.",
@@ -746,7 +747,7 @@ async function handleGenerate(request: Request, env: Env): Promise<Response> {
     }
     const { allowed } = await checkRateLimit(env.RATE_LIMIT, ip);
     if (!allowed) {
-      return jsonResponse({ error: "rate_limited", message: "今天免费额度已用完，请明天再来 🙂" }, 429);
+      return jsonResponse({ error: "rate_limited", message: "今天免费额度已用完，请明天再来" }, 429);
     }
   }
 
