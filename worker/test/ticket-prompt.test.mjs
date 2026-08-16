@@ -80,6 +80,10 @@ test("禁止页面标签词（no ADMIT ONE / no SEAT / no Film title）", () => 
   assert.ok(!src.includes("no seat numbers"));
 });
 
+test("禁 emoji 约束写入 prompt（item A，票面无任何 emoji/pictograph）", () => {
+  assert.ok(src.includes("No emoji, no pictographic or emoticon symbols anywhere on the ticket"));
+});
+
 test("生图关闭 prompt 扩写与去水印（文字精确优先）", () => {
   assert.ok(src.includes("prompt_extend: false"));
   assert.ok(src.includes("watermark: false"));

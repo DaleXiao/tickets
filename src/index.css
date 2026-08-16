@@ -3,8 +3,8 @@
    设计方向：impeccable.style editorial
      - film grain 纹理叠层
      - 暖中性色：浅色暖纸 / 深色深暖底 #0c0b09，金色 accent #d4a054
-     - Cormorant Garamond（衬线 display）+ Space Grotesk（UI chrome）
-       中文衬线 Noto Serif SC
+     - Cormorant Garamond（西文 display 衬线）+ Space Grotesk（UI chrome）
+       中文 Noto Sans SC（SPEC-349：UI 中文去衬线，票面衬线仅烘焙进生图）
      - 编号分节、克制动效、单一编排的加载 + 结果淡入
      现代 CSS：oklch / clamp / light-dark 手写主题变量
    ============================================================ */
@@ -26,8 +26,8 @@
 
   --grain-opacity: 0.045;
 
-  --font-serif: "Cormorant Garamond", "Noto Serif SC", "Songti SC", "STSong", Georgia, serif;
-  --font-sans: "Space Grotesk", "Noto Serif SC", system-ui, sans-serif;
+  --font-serif: "Cormorant Garamond", "Noto Sans SC", Georgia, serif;
+  --font-sans: "Space Grotesk", "Noto Sans SC", system-ui, sans-serif;
 
   --measure: 42rem;
 
@@ -399,15 +399,15 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* 小齿轮动效 */
-.gear {
+/* 太阳放射线 spinner（icon-forge 同款，animate-spin 1s 匀速） */
+.spinner {
   width: 1rem;
   height: 1rem;
   flex: none;
 }
 
-.gear {
-  animation: spin 1.4s linear infinite;
+.spinner {
+  animation: spin 1s linear infinite;
 }
 
 @keyframes spin {
@@ -578,7 +578,7 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .gear { animation: none; }
+  .spinner { animation: none; }
   .skeleton { animation: none; }
   .rise { animation: none; }
   .btn, .knob { transition: none; }
