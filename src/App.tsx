@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useT, useTheme, useLang, toggleLang, toggleTheme } from "./i18n";
 
 // --- Types ---
 
@@ -40,9 +41,63 @@ function todayStr(): string {
   return `${y}-${m}-${day}`;
 }
 
+// --- 小图标 ---
+
+function GearIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3.1" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  );
+}
+
+function SunIcon() {
+  return (
+    <svg className="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1.5M12 19.5V21M4.219 4.219l1.061 1.061M17.72 17.72l1.06 1.06M3 12h1.5M19.5 12H21M4.219 19.781l1.061-1.061M17.72 6.28l1.06-1.06" />
+      <circle cx="12" cy="12" r="4.2" />
+    </svg>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg className="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
+    </svg>
+  );
+}
+
+// --- 顶部切换按钮 ---
+
+function ThemeToggle() {
+  const theme = useTheme();
+  const t = useT();
+  const label = t(theme === "dark" ? "theme.toLight" : "theme.toDark");
+  return (
+    <button type="button" className="knob" onClick={() => toggleTheme()} aria-label={label} title={label}>
+      {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+    </button>
+  );
+}
+
+function LangToggle() {
+  const t = useT();
+  const lang = useLang();
+  // 显示「将切换到的语言」——icon-forge 同款语义。
+  const label = lang === "zh" ? "EN" : "中";
+  return (
+    <button type="button" className="knob knob-text" onClick={() => toggleLang()} aria-label={t("lang.toggle")} title={t("lang.toggle")}>
+      {label}
+    </button>
+  );
+}
+
 // --- App ---
 
 export default function App() {
+  const t = useT();
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(todayStr());
   const [time, setTime] = useState("20:00");
@@ -145,7 +200,6 @@ export default function App() {
         setRemaining(data.remaining);
         if (data.remaining <= 0) setRateLimited(true);
       }
-      // 用最后一张图兜底（icon_ready 已推过，这里仅状态收尾）
       if (Array.isArray(data.icons) && data.icons.length > 0) {
         setIcon(data.icons[0]);
       }
@@ -160,9 +214,8 @@ export default function App() {
     });
 
     es.addEventListener("error", (e) => {
-      // 服务端 `event: error` 是 MessageEvent；原生传输失败是 Event，交给 onerror。
       if (!(e as MessageEvent).data) return;
-      let message = "生成失败，请稍后重试";
+      let message = t("err.generateFailed");
       try {
         const parsed = JSON.parse((e as MessageEvent).data);
         if (parsed.message) message = parsed.message;
@@ -190,7 +243,7 @@ export default function App() {
       } else {
         setPhase((prev) => {
           if (prev === "complete" || prev === "error") return prev;
-          setError("连接中断，请重试");
+          setError(t("err.connection"));
           setLoading(false);
           return "error";
         });
@@ -227,7 +280,7 @@ export default function App() {
             setLoading(false);
           }, 300);
         } else if (data.state === "error") {
-          setError(data.error || "生成失败，请重试");
+          setError(data.error || t("err.generateFailed"));
           setPhase("error");
           setLoading(false);
           currentTaskIdRef.current = null;
@@ -275,11 +328,11 @@ export default function App() {
   const handleGenerate = useCallback(async () => {
     const trimmed = title.trim();
     if (!trimmed) {
-      setError("请输入电影名");
+      setError(t("err.titleRequired"));
       return;
     }
     if (!date || !time) {
-      setError("请选择放映时间");
+      setError(t("err.timeRequired"));
       return;
     }
 
@@ -309,21 +362,21 @@ export default function App() {
       if (res.status === 429) {
         setRateLimited(true);
         setRemaining(0);
-        setError(body.message || "今日额度已用完");
+        setError(body.message || t("err.rateLimited"));
         setPhase("error");
         setLoading(false);
         return;
       }
       if (res.status === 503) {
         const busy = body as ErrorResponse & { retryAfter?: number };
-        setError(body.message || "使用人数较多，请稍后再试");
+        setError(body.message || t("err.busy"));
         setPhase("error");
         setLoading(false);
         startRetryCountdown(busy.retryAfter || 30);
         return;
       }
       if (!res.ok) {
-        setError(body.message || "生成失败，请稍后重试");
+        setError(body.message || t("err.generateFailed"));
         setPhase("error");
         setLoading(false);
         return;
@@ -332,11 +385,11 @@ export default function App() {
       setQueuePosition(body.position);
       startSSE(body.taskId);
     } catch {
-      setError("网络错误，请重试");
+      setError(t("err.network"));
       setPhase("error");
       setLoading(false);
     }
-  }, [title, date, time, showtime]);
+  }, [title, date, time, showtime, t]);
 
   async function handleDownload() {
     if (!icon) return;
@@ -368,28 +421,39 @@ export default function App() {
 
   return (
     <div className="shell">
-      <div className="container">
-        <header className="masthead fade-in">
-          <span className="eyebrow">Admit One</span>
-          <h1 className="wordmark">
-            票根<span className="dot">.</span>
-          </h1>
-          <p className="tagline">输入片名和场次，生成一张纪念票根</p>
-        </header>
+      <div className="grain" aria-hidden="true" />
+
+      <header className="topbar rise">
+        <a className="wordmark" href="/" onClick={(e) => e.preventDefault()}>
+          票根<span className="dot">.</span>
+        </a>
+        <div className="top-actions">
+          <LangToggle />
+          <ThemeToggle />
+        </div>
+      </header>
+
+      <main className="container">
+        <section className="hero rise rise-1">
+          <span className="eyebrow">Admit One — Cinema Ticket Studio</span>
+          <h1 className="headline serif">凭票入场，纪念一场好电影</h1>
+          <p className="lede">{t("tagline")}</p>
+        </section>
 
         {/* 表单 */}
-        <section className="form fade-in">
+        <section className="form rise rise-2" aria-label={t("sec.film")}>
+          <span className="kicker">01</span>
           <div className="field">
-            <label htmlFor="title">
-              片名 <span className="req">*</span>
+            <label htmlFor="title" className="field-label">
+              {t("field.title")} <span className="req">*</span>
             </label>
             <input
               id="title"
-              className="input"
+              className="input serif-input"
               type="text"
               value={title}
               maxLength={120}
-              placeholder="例如：银翼杀手 2049 / Parasite / 千与千寻"
+              placeholder={t("field.title.placeholder")}
               onChange={(e) => {
                 setTitle(e.target.value);
                 setError(null);
@@ -401,7 +465,9 @@ export default function App() {
 
           <div className="row">
             <div className="field">
-              <label htmlFor="date">日期</label>
+              <label htmlFor="date" className="field-label">
+                {t("field.date")}
+              </label>
               <input
                 id="date"
                 className="input"
@@ -415,7 +481,9 @@ export default function App() {
               />
             </div>
             <div className="field">
-              <label htmlFor="time">时间</label>
+              <label htmlFor="time" className="field-label">
+                {t("field.time")}
+              </label>
               <input
                 id="time"
                 className="input"
@@ -431,46 +499,53 @@ export default function App() {
           </div>
 
           <button className="btn btn-primary" onClick={handleGenerate} disabled={!canGenerate}>
-            {loading ? "生成中…" : "生成票根"}
+            {loading ? t("btn.generating") : t("btn.generate")}
           </button>
         </section>
 
         {/* 错误 */}
-        {error && <p className="error fade-in">{error}</p>}
+        {error && <p className="error rise">{error}</p>}
 
         {/* 生成进度 */}
         {loading && (
-          <section className="ticket-stage fade-in">
+          <section className="stage rise">
             <p className="status">
-              {phase === "queued" && queuePosition > 1
-                ? `前面还有 ${queuePosition - 1} 位，请稍候`
-                : phase === "queued"
-                  ? "正在准备…"
-                  : (
-                    <>
-                      正在绘制票根 <span className="pct">{progress}%</span>
-                    </>
-                  )}
+              {phase === "queued" && queuePosition > 1 ? (
+                t("status.queued", { n: queuePosition - 1 })
+              ) : phase === "queued" ? (
+                t("status.preparing")
+              ) : (
+                <>
+                  <GearIcon className="gear" />
+                  {t("status.generating")}{" "}
+                  <span className="pct">{progress}%</span>
+                </>
+              )}
             </p>
             <div className="ticket">
               <div className="skeleton" />
             </div>
-            <p className="status">请勿关闭页面</p>
+            <p className="status-soft">{t("status.dontClose")}</p>
           </section>
         )}
 
         {/* 结果 */}
         {!loading && icon && (
-          <section className="ticket-stage fade-in">
+          <section className="stage rise">
             <div className="ticket">
-              <img src={icon.url} alt="生成的电影票根" />
+              <img src={icon.url} alt={title} />
+            </div>
+            <div className="caption serif">
+              <div className="caption-title">{title}</div>
+              <div className="caption-meta">{showtime}</div>
+              <div className="caption-venue">Elsewhere Cinema</div>
             </div>
             <div className="actions">
               <button className="btn btn-primary" onClick={() => void handleGenerate()}>
-                重新生成
+                {t("btn.regenerate")}
               </button>
               <button className="btn btn-ghost" onClick={() => void handleDownload()}>
-                下载 PNG
+                {t("btn.download")}
               </button>
             </div>
           </section>
@@ -478,28 +553,31 @@ export default function App() {
 
         {/* 重试倒计时 */}
         {retryCountdown > 0 && !loading && (
-          <p className="error fade-in">{retryCountdown}s 后可重试</p>
+          <p className="error rise">
+            {retryCountdown}{t("err.retryAfter")}
+          </p>
         )}
 
         {/* 配额 */}
         {remaining !== null && (
           <p className="quota">
-            {rateLimited
-              ? "今日免费额度已用完，明天再来 🙂"
-              : (
-                <>
-                  今日剩余 <span className="num">{remaining}/{total}</span> 张
-                </>
-              )}
+            {rateLimited ? (
+              t("err.rateLimited")
+            ) : (
+              <>
+                {t("quota.left")} <span className="num">{remaining}/{total}</span>{" "}
+                {t("quota.unit")}
+              </>
+            )}
           </p>
         )}
+      </main>
 
-        <footer className="footer">
-          <a href="https://openclawd.co" target="_blank" rel="noopener">
-            openclawd.co
-          </a>
-        </footer>
-      </div>
+      <footer className="footer">
+        <a href="https://openclawd.co" target="_blank" rel="noopener">
+          {t("footer.brand")}
+        </a>
+      </footer>
     </div>
   );
 }

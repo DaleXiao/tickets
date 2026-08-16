@@ -6,9 +6,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>票根 — 电影票根生成器</title>
     <meta name="description" content="输入片名和场次时间，AI 生成一张含抽象电影场景插画的纪念票根图。" />
+    <meta name="theme-color" content="#0c0b09" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Space+Grotesk:wght@300;400;500;600;700&family=Noto+Serif+SC:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      // 首帧防主题闪烁：在 hydration 前按持久化选择套用 .dark 类。
+      (function () {
+        try {
+          var t = localStorage.getItem("tickets-theme");
+          var dark = t === "dark" || (t !== "light" && !window.matchMedia("(prefers-color-scheme: light)").matches);
+          var root = document.documentElement;
+          if (dark) root.classList.add("dark");
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute("content", dark ? "#0c0b09" : "#f5efe3");
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

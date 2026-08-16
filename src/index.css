@@ -1,35 +1,57 @@
 /* ============================================================
-   tickets — 电影票根生成器
-   设计方向：vintage cinema ticket stub（复古电影票根）
-   词汇参考 impeccable.style：
-     - grotesque 展示字 + mono 票面字段（禁用衬线，SPEC-345 硬约束）
-     - 暖纸张 + 墨水 + 单一影院红强调色（绝无紫蓝渐变 / 玻璃拟态 / 霓虹）
-     - 现代 CSS：oklch / clamp
+   tickets — 电影票根生成器 (v1.1)
+   设计方向：impeccable.style editorial
+     - film grain 纹理叠层
+     - 暖中性色：浅色暖纸 / 深色深暖底 #0c0b09，金色 accent #d4a054
+     - Cormorant Garamond（衬线 display）+ Space Grotesk（UI chrome）
+       中文衬线 Noto Serif SC
+     - 编号分节、克制动效、单一编排的加载 + 结果淡入
+     现代 CSS：oklch / clamp / light-dark 手写主题变量
    ============================================================ */
 
 :root {
-  /* 纸张（票根纸）——不是纯白，是暖奶油库存纸 */
-  --paper: oklch(0.957 0.013 84);
-  --paper-deep: oklch(0.912 0.02 82);
-  --paper-card: oklch(0.972 0.011 82);
+  /* —— 浅色（暖纸）—— */
+  --paper: oklch(0.965 0.014 82);
+  --paper-raised: oklch(0.982 0.006 84);
+  --ink: oklch(0.26 0.02 55);
+  --ink-soft: oklch(0.45 0.022 55);
+  --ink-faint: oklch(0.6 0.018 58);
+  --edge: oklch(0.87 0.016 72);
+  --edge-strong: oklch(0.78 0.02 70);
 
-  /* 墨水（暖近黑，不是 #000） */
-  --ink: oklch(0.235 0.016 68);
-  --ink-soft: oklch(0.44 0.018 68);
-  --ink-faint: oklch(0.60 0.016 70);
+  --accent: #d4a054;
+  --accent-deep: #b9853e;
+  --accent-tint: oklch(0.945 0.04 80);
+  --on-accent: oklch(0.22 0.02 55);
 
-  /* 分隔线 */
-  --line: oklch(0.78 0.02 78);
+  --grain-opacity: 0.045;
 
-  /* 影院红（唯一强调色） */
-  --accent: oklch(0.55 0.19 26);
-  --accent-deep: oklch(0.45 0.18 26);
-  --accent-tint: oklch(0.955 0.035 26);
+  --font-serif: "Cormorant Garamond", "Noto Serif SC", "Songti SC", "STSong", Georgia, serif;
+  --font-sans: "Space Grotesk", "Noto Serif SC", system-ui, sans-serif;
 
-  --font-display: "Archivo", "Helvetica Neue", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+  --measure: 42rem;
 
-  --measure: 34rem;
+  color-scheme: light;
+}
+
+.dark {
+  /* —— 深色（深暖底，impeccable 主体）—— */
+  --paper: #0c0b09;
+  --paper-raised: #15120d;
+  --ink: oklch(0.87 0.014 78);
+  --ink-soft: oklch(0.68 0.015 76);
+  --ink-faint: oklch(0.52 0.015 74);
+  --edge: oklch(0.28 0.014 72);
+  --edge-strong: oklch(0.36 0.016 72);
+
+  --accent: #d4a054;
+  --accent-deep: #e2b877;
+  --accent-tint: oklch(0.26 0.03 76);
+  --on-accent: oklch(0.16 0.015 60);
+
+  --grain-opacity: 0.06;
+
+  color-scheme: dark;
 }
 
 * {
@@ -45,12 +67,33 @@ body {
 body {
   background: var(--paper);
   color: var(--ink);
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  /* 极淡的纸张颗粒：真正的票根纸是有纤维的 */
-  background-image: radial-gradient(oklch(0.4 0.02 80 / 0.035) 1px, transparent 1px);
-  background-size: 22px 22px;
+  transition: background-color 240ms ease, color 240ms ease;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* —— film grain 叠层 —— */
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: var(--grain-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 240px 240px;
 }
 
 /* ============ 布局 ============ */
@@ -59,139 +102,173 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  padding: clamp(2.5rem, 7vw, 5rem) 1.25rem 3rem;
 }
 
-.container {
-  width: 100%;
-  max-width: var(--measure);
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
   display: flex;
-  flex-direction: column;
-  gap: clamp(1.5rem, 3.5vw, 2.25rem);
-}
-
-/* ============ 头部 ============ */
-
-.masthead {
-  text-align: center;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 auto;
+  width: 100%;
+  max-width: calc(var(--measure) + 4rem);
+  padding: 1.1rem 1.25rem;
 }
 
 .wordmark {
-  font-size: clamp(2.1rem, 6vw, 3.1rem);
-  font-weight: 800;
-  letter-spacing: -0.02em;
+  font-family: var(--font-serif);
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  text-decoration: none;
   line-height: 1;
-  margin: 0;
-  text-transform: uppercase;
 }
 
 .wordmark .dot {
   color: var(--accent);
 }
 
-.tagline {
-  margin: 0.8rem 0 0;
-  color: var(--ink-soft);
-  font-size: clamp(0.95rem, 2.6vw, 1.05rem);
-  letter-spacing: 0.04em;
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.container {
+  width: 100%;
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: clamp(2rem, 6vw, 4rem) 1.25rem 4rem;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(2rem, 5vw, 3rem);
+}
+
+/* ============ 头部（editorial hero） ============ */
+
+.hero {
+  max-width: 34rem;
 }
 
 .eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-  margin-bottom: 0.9rem;
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  letter-spacing: 0.22em;
+  display: inline-block;
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: var(--ink-faint);
+  color: var(--accent);
+  margin-bottom: 1.1rem;
 }
 
-.eyebrow::before,
-.eyebrow::after {
-  content: "";
-  height: 1px;
-  width: 1.6rem;
-  background: var(--line);
+.headline {
+  font-family: var(--font-serif);
+  font-size: clamp(2rem, 5.4vw, 3rem);
+  font-weight: 500;
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+  margin: 0;
+  color: var(--ink);
+  text-wrap: balance;
 }
 
-/* ============ 表单（票根风格） ============ */
+.lede {
+  margin: 0.9rem 0 0;
+  color: var(--ink-soft);
+  font-size: clamp(0.98rem, 2.4vw, 1.08rem);
+  max-width: 30rem;
+}
+
+/* ============ 字段 / 表单（editorial 下划线式，非卡片墙） ============ */
 
 .form {
-  background: var(--paper-card);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: clamp(1.25rem, 4vw, 1.75rem);
-  box-shadow:
-    inset 0 1px 0 oklch(1 0 0 / 0.55),
-    0 1px 2px oklch(0.3 0.02 60 / 0.05);
-  /* 票根撕边：上下两条虚线齿孔 */
   position: relative;
+  border-top: 1px solid var(--edge);
+  padding-top: 1.6rem;
 }
 
-.form::before {
+.kicker {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  font-family: var(--font-sans);
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 1.6rem;
+}
+
+.kicker::after {
   content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: -6px;
-  height: 12px;
-  background-image: radial-gradient(circle, var(--paper) 3.2px, transparent 3.6px);
-  background-size: 16px 12px;
-  background-position: 8px center;
-  pointer-events: none;
+  flex: 1;
+  height: 1px;
+  background: var(--edge);
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.4rem;
 }
 
 .field + .field {
-  margin-top: 1.15rem;
+  margin-top: 1.4rem;
 }
 
-.field label {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.14em;
+.field-label {
+  font-family: var(--font-sans);
+  font-size: 0.74rem;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-faint);
 }
 
-.field label .req {
+.field-label .req {
   color: var(--accent);
 }
 
 .input {
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 1rem;
   color: var(--ink);
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 0.8rem 0.9rem;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--edge-strong);
+  border-radius: 0;
+  padding: 0.5rem 0;
+  transition: border-color 140ms ease;
 }
 
 .input:focus {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px oklch(0.55 0.19 26 / 0.12);
+  border-bottom-color: var(--accent);
 }
 
 .input::placeholder {
   color: var(--ink-faint);
+  opacity: 0.8;
+}
+
+/* 片名用衬线（票面文字气质） */
+.serif-input {
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
 }
 
 .row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.9rem;
-  margin-top: 1.15rem;
+  gap: 1.1rem;
+  margin-top: 1.4rem;
+}
+
+/* date/time 控件在深色主题下的 calendar icon 适配 */
+.dark .input[type="date"],
+.dark .input[type="time"] {
+  color-scheme: dark;
 }
 
 /* ============ 按钮 ============ */
@@ -200,66 +277,115 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.55rem;
-  width: 100%;
-  margin-top: 1.4rem;
-  padding: 0.9rem 1.2rem;
-  border: none;
+  min-height: 2.9rem;
+  padding: 0.75rem 1.4rem;
   border-radius: 4px;
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 0.95rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  border: 1px solid transparent;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 0.92rem;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
-  transition: transform 100ms ease, background-color 120ms ease, box-shadow 120ms ease;
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease, transform 120ms ease;
 }
 
 .btn:disabled {
   cursor: not-allowed;
-  opacity: 0.55;
+  opacity: 0.5;
+}
+
+.form > .btn {
+  width: 100%;
+  margin-top: 1.8rem;
 }
 
 .btn-primary {
   background: var(--accent);
-  color: oklch(0.985 0.005 26);
-  box-shadow: 0 2px 0 var(--accent-deep);
+  color: var(--on-accent);
 }
 
 .btn-primary:not(:disabled):hover {
-  background: oklch(0.58 0.19 26);
+  background: var(--accent-deep);
 }
 
 .btn-primary:not(:disabled):active {
   transform: translateY(1px);
-  box-shadow: 0 1px 0 var(--accent-deep);
 }
 
 .btn-ghost {
   background: transparent;
-  color: var(--ink);
-  border: 1px solid var(--line);
-  box-shadow: none;
+  color: var(--ink-soft);
+  border-color: var(--edge-strong);
 }
 
 .btn-ghost:not(:disabled):hover {
-  border-color: var(--ink-soft);
+  color: var(--ink);
+  border-color: var(--accent);
 }
 
-/* ============ 结果票根 ============ */
+/* 顶部切换按钮（暖纸/油墨质感，非默认控件） */
+.knob {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 2.5rem;
+  min-width: 2.5rem;
+  padding: 0 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--edge-strong);
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease, background-color 140ms ease;
+}
 
-.ticket-stage {
+.knob:hover {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+.knob .ico {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.knob-text {
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+}
+
+/* ============ 结果 / 进度票根 ============ */
+
+.stage {
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
+  gap: 1rem;
 }
 
 .status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 0;
   text-align: center;
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  letter-spacing: 0.08em;
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
   color: var(--ink-soft);
+}
+
+.status-soft {
+  margin: 0;
+  text-align: center;
+  font-family: var(--font-sans);
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
 }
 
 .status .pct {
@@ -268,13 +394,28 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* 小齿轮动效 */
+.gear {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+}
+
+.gear {
+  animation: spin 1.4s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .ticket {
   position: relative;
-  background: var(--paper-card);
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  background: var(--paper-raised);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
   overflow: hidden;
-  box-shadow: 0 1px 2px oklch(0.3 0.02 60 / 0.06);
 }
 
 .ticket img {
@@ -285,7 +426,7 @@ body {
   object-fit: cover;
 }
 
-/* 票根打孔圆口 + 撕边（左缘） */
+/* 票根打孔圆口 + 撕边（展示层） */
 .ticket::before {
   content: "";
   position: absolute;
@@ -296,7 +437,7 @@ body {
   transform: translateY(-50%);
   border-radius: 50%;
   background: var(--paper);
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   box-shadow: 0 0 0 4px var(--paper);
 }
 
@@ -313,14 +454,21 @@ body {
   pointer-events: none;
 }
 
-/* 骨架屏（生成中）——票根轮廓 + 轻微 shimmer */
+/* 骨架屏（生成中） */
 .skeleton {
   aspect-ratio: 3 / 2;
   background:
     linear-gradient(100deg, transparent 38%, oklch(1 0 0 / 0.4) 50%, transparent 62%),
-    var(--paper-deep);
+    var(--edge);
   background-size: 220% 100%;
   animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.dark .skeleton {
+  background:
+    linear-gradient(100deg, transparent 38%, oklch(1 0 0 / 0.08) 50%, transparent 62%),
+    var(--edge);
+  background-size: 220% 100%;
 }
 
 @keyframes shimmer {
@@ -328,28 +476,61 @@ body {
   100% { background-position: -60% 0; }
 }
 
+/* 结果三行衬线回显（片名 / 时间 / ELSEWHERE CINEMA） */
+.caption {
+  line-height: 1.25;
+}
+
+.caption-title {
+  font-family: var(--font-serif);
+  font-size: 1.7rem;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.caption-meta {
+  font-family: var(--font-serif);
+  font-size: 1.05rem;
+  color: var(--ink-soft);
+  margin-top: 0.2rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.caption-venue {
+  font-family: var(--font-sans);
+  font-size: 0.7rem;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-top: 0.7rem;
+}
+
 .actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 0.8rem;
 }
 
 .actions .btn {
-  margin-top: 0;
+  width: 100%;
 }
 
 /* ============ 错误 / 配额 ============ */
 
 .error {
+  margin: 0;
   text-align: center;
+  font-family: var(--font-sans);
   font-size: 0.88rem;
   color: var(--accent-deep);
 }
 
 .quota {
+  margin: 0;
   text-align: center;
-  font-family: var(--font-mono);
-  font-size: 0.74rem;
-  letter-spacing: 0.06em;
+  font-family: var(--font-sans);
+  font-size: 0.76rem;
+  letter-spacing: 0.04em;
   color: var(--ink-faint);
 }
 
@@ -362,7 +543,7 @@ body {
 
 .footer {
   margin-top: auto;
-  padding-top: 2.5rem;
+  padding: 2rem 1.25rem 2.5rem;
   text-align: center;
 }
 
@@ -370,31 +551,45 @@ body {
   color: var(--ink-faint);
   text-decoration: none;
   font-size: 0.74rem;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
 }
 
 .footer a:hover {
   color: var(--ink-soft);
 }
 
-.error + .quota,
-.status + .ticket-stage {
-  margin-top: 0;
+/* ============ 动效（克制，单一编排） ============ */
+
+.rise {
+  animation: rise 560ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* ============ 动效 ============ */
+.rise-1 { animation-delay: 70ms; }
+.rise-2 { animation-delay: 150ms; }
 
-.fade-in {
-  animation: fadeIn 360ms ease-out both;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(6px); }
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .gear { animation: none; }
   .skeleton { animation: none; }
-  .fade-in { animation: none; }
-  * { transition: none !important; }
+  .rise { animation: none; }
+  .btn, .knob { transition: none; }
+}
+
+/* ============ 窄屏（移动端） ============ */
+
+@media (max-width: 520px) {
+  .row {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.8rem;
+  }
+  .actions {
+    grid-template-columns: 1fr 1fr;
+  }
+  .headline {
+    font-size: 1.9rem;
+  }
 }
