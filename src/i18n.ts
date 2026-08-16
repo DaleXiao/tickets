@@ -26,6 +26,8 @@ const THEME_KEY = "tickets-theme";
 
 const DICT: Dicts = {
   zh: {
+    "wordmark": "票根",
+    "hero.headline": "凭票入场，纪念一场好电影",
     "theme.toLight": "切到浅色",
     "theme.toDark": "切到深色",
     "lang.toggle": "切换语言",
@@ -55,9 +57,11 @@ const DICT: Dicts = {
     "err.retryAfter": "s 后可重试",
     "quota.left": "今日剩余",
     "quota.unit": "张",
-    "footer.brand": "openclawd.co",
+    "footer.brand": "Tinkerer's Lab",
   },
   en: {
+    "wordmark": "Tickets",
+    "hero.headline": "A ticket for a film worth remembering",
     "theme.toLight": "Switch to light",
     "theme.toDark": "Switch to dark",
     "lang.toggle": "Toggle language",
@@ -87,9 +91,30 @@ const DICT: Dicts = {
     "err.retryAfter": "s until retry",
     "quota.left": "Today remaining",
     "quota.unit": "",
-    "footer.brand": "openclawd.co",
+    "footer.brand": "Tinkerer's Lab",
   },
 };
+
+// --- 文档元信息（title / description 随语言切换，满足 SPEC-348 item E） ---
+
+const META: Record<Lang, { title: string; description: string }> = {
+  zh: {
+    title: "票根 — 电影票根生成器",
+    description: "输入片名和场次时间，AI 生成一张含电影标志性元素的纪念票根图。",
+  },
+  en: {
+    title: "Tickets — Cinema Ticket Studio",
+    description: "Enter a film title and showtime to generate a commemorative ticket with an iconic film motif.",
+  },
+};
+
+function syncDocumentMeta(l: Lang): void {
+  if (typeof document === "undefined") return;
+  const meta = META[l] ?? META.zh;
+  document.title = meta.title;
+  const desc = document.querySelector('meta[name="description"]');
+  if (desc) desc.setAttribute("content", meta.description);
+}
 
 // --- lang ---
 
@@ -128,6 +153,7 @@ export function setLang(l: Lang): void {
     /* ignore */
   }
   syncHtmlLang(l);
+  syncDocumentMeta(l);
   emitLang();
 }
 
@@ -215,4 +241,5 @@ export function useTheme(): Theme {
 
 // First-import alignment (defensive; index.html inline script does the no-flash pre-apply).
 syncHtmlLang(currentLang);
+syncDocumentMeta(currentLang);
 applyTheme(currentTheme);
