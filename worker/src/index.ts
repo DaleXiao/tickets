@@ -123,35 +123,38 @@ function taskCacheKey(taskId: string): string {
 export const TICKET_SYSTEM_PROMPT = `You are an elite movie-ticket art director. Given a film title (any language) and a showtime, you produce a single structured JSON interpretation that an image model renders as a commemorative, collectible cinema ticket stub.
 
 ━━━ CORE PRINCIPLE ━━━
-The illustration must evoke the film through its SINGLE most iconic, recognizable scene, element, or motif — rendered as a flat, graphic, poster-grade ABSTRACT illustration, never a photorealistic still and never a specific actor's likeness. Rely on your own knowledge of the film.
+The illustration must evoke the film through its SINGLE most iconic, recognizable element or motif — reduced to a flat, geometric, minimalist poster-grade ABSTRACT, never a photorealistic still and never a specific actor's likeness. Rely on your own knowledge of the film.
 
 ━━━ RULES ━━━
-1. ICONIC NOT LITERAL — abstract the film's most recognizable element (the black monolith for "2001: A Space Odyssey", the red balloon for "IT", the DeLorean for "Back to the Future", the shark fin for "Jaws"). One dominant motif.
-2. ONE STRONG ELEMENT — 1 dominant motif + at most 1-2 supporting details. Simplest wins; crowded tickets look cheap.
-3. EVOKE THE MOOD — the palette must match the film's emotional register (noir = cold ink + a single warm accent; comedy = bright and warm; horror = dark + one blood accent).
-4. NEVER WRITE TEXT — your JSON describes ILLUSTRATION + LAYOUT + PALETTE only. The system injects the film title and showtime strings separately as exact text. You must NOT reproduce or transliterate them.
+1. ICONIC NOT LITERAL — abstract the film's single most recognizable motif (the black monolith for "2001: A Space Odyssey", the red balloon for "IT", a lone shark fin above water for "Jaws"). ONE motif only.
+2. SIMPLEST POSSIBLE — 1 dominant motif, at most 1 supporting shape. Flat solid fills, no gradients, no texture detail, no depth. Large negative space around the motif. Crowded or busy tickets look cheap and AI-generated.
+3. MINIMALIST POSTER-GRADE — think a 1950s–70s minimalist film poster: a single bold geometric shape against empty field, not a populated scene. Never enumerate a roster of scenes or objects; never stack decorative detail.
+4. TWO TO THREE COLORS — a tight, disciplined palette (2–3 ink colors + the paper). The palette must match the film's emotional register (noir = near-black + one warm accent; comedy = warm cream + one bright; horror = near-black + one blood accent).
+5. NEVER WRITE TEXT — your JSON describes ILLUSTRATION + LAYOUT + PALETTE only. The system injects the film title and showtime strings separately as exact text. You must NOT reproduce or transliterate them.
 
 ━━━ OUTPUT FORMAT ━━━
 Output ONLY valid JSON (no markdown fences, no commentary):
 {
-  "illustration": "abstract graphic description: concrete shapes, composition, the iconic motif (2-4 sentences)",
-  "layout": "where the illustration sits on the ticket relative to the text fields (e.g. a left illustration block with the title+time typeset on the right; or a large background motif with an engraved bottom strip for text)",
-  "palette": "2-4 concrete colors named as hex-like descriptions + the single mood word they create"
+  "illustration": "abstract graphic description: the single iconic motif, concrete flat shapes, composition (2-3 sentences max)",
+  "layout": "where the illustration sits on the ticket relative to the text block (e.g. a left flat motif with the typeset title+time on the right; or a large background motif with a reserved bottom text strip)",
+  "palette": "2-3 concrete colors named as hex-like descriptions + the single mood word they create"
 }`;
 
 export function assembleTicketPrompt(title: string, showtime: string, p: TicketPrompt): string {
   return [
-    "A flat, graphic, poster-grade cinema ticket stub illustration, landscape 3:2, printed on warm cream ticket stock with subtle paper-fiber texture and a clean perforated-edge silhouette (a row of small notches on one short side).",
+    "A flat, graphic, minimalist poster-grade cinema ticket stub illustration, landscape 3:2, printed on warm cream ticket stock with subtle paper-fiber texture and a clean perforated-edge silhouette (a row of small notches on one short side).",
     p.illustration,
     p.layout,
     p.palette,
     "",
-    "The ticket carries EXACTLY TWO lines of rendered text and nothing else.",
-    `Line 1 — large and bold, the film title: "${title}"`,
-    `Line 2 — smaller, beneath it, the showtime: "${showtime}"`,
-    "Do NOT render any field-label words (no English labels such as 'Film title' or 'Showtime', no 'ADMIT ONE'). Do NOT invent any extra text — no seat numbers, no row/seat lines, no price, no venue name, no date sub-fields, no pseudo-Latin filler, no invented words, no signage. The ONLY readable text on the entire ticket is the two lines above.",
+    "The ticket carries EXACTLY THREE lines of typeset text and nothing else.",
+    `Line 1 — the film title, typeset large and elegant in an editorial Didone/Garamond serif, on its own line: "${title}"`,
+    `Line 2 — the showtime, typeset smaller beneath the title in the same serif, clearly subordinated: "${showtime}"`,
+    `Line 3 — below both, small and letter-spaced uppercase small-caps, the fixed cinema name: "ELSEWHERE CINEMA"`,
+    "Typeset all three lines with elegant editorial hierarchy: title largest, showtime clearly smaller, cinema name smallest with wide letter-spacing. The typesetting must read like a refined print ticket, not label stickers.",
+    "Do NOT render any field-label words (no 'Film title', no 'Showtime', no 'ADMIT ONE'). Do NOT invent any extra text — no seat numbers, no row/seat lines, no price, no venue name other than ELSEWHERE CINEMA, no date sub-fields, no pseudo-Latin filler, no invented words, no signage. The ONLY readable text on the entire ticket is the three lines above.",
     "",
-    "Chinese / Japanese / Korean characters in the two lines must be rendered with complete, correct strokes — never simplified, broken, mirrored, or replaced with look-alike glyphs. Numbers, colons, hyphens and punctuation in the two lines must match exactly, character-for-character.",
+    "Chinese / Japanese / Korean characters in the three lines must be rendered with complete, correct strokes — never simplified, broken, mirrored, or replaced with look-alike glyphs. Numbers, colons, hyphens and punctuation in the three lines must match exactly, character-for-character.",
     "No watermark, no signature, no artist credit. The illustration area contains no text and the barcode decodes to no readable characters.",
   ].join("\n");
 }
