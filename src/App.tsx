@@ -31,6 +31,11 @@ type Phase = "idle" | "queued" | "generating" | "complete" | "error";
 const API_BASE = import.meta.env.PROD ? "https://api-tickets.openclawd.co/api" : "/api";
 const TEST_PARAM = new URLSearchParams(window.location.search).has("test") ? "?test" : "";
 
+// SPEC-351：Cloudflare Turnstile site key（public，入 bundle 安全）。
+// 部署前置：由 Cindy 为 tickets.openclawd.co 注册 widget 后替换为正式值；
+// 开发期复用 icon-forge 既有 site key 联调。
+const TURNSTILE_SITE_KEY = "0x4AAAAAADCaJjLh7I5xepTX";
+
 const TASK_POLL_MS = 5000;
 
 function todayStr(): string {
@@ -102,6 +107,120 @@ function LangToggle() {
   );
 }
 
+// --- 防盗刷 session（SPEC-351，与 icon-forge SPEC-341 同款）---
+
+// Managed Turnstile 对低风险用户不可见（interaction-only），仅当 CF 要求交互时弹出可点击主机。
+function getTurnstileToken(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const ts = (window as unknown as {
+      turnstile?: { render: (host: HTMLElement, opts: Record<string, unknown>) => void };
+    }).turnstile;
+    if (!ts) {
+      reject(new Error("turnstile not loaded"));
+      return;
+    }
+
+    const host = document.createElement("div");
+    host.setAttribute("aria-label", "安全验证");
+    host.style.cssText =
+      "position:fixed;right:20px;bottom:20px;z-index:9999;width:300px;min-height:65px;pointer-events:auto;";
+    document.body.appendChild(host);
+    let settled = false;
+    const done = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      try {
+        document.body.removeChild(host);
+      } catch {
+        // ignore
+      }
+      fn();
+    };
+    const timer = setTimeout(() => done(() => reject(new Error("turnstile timeout"))), 12_000);
+    try {
+      ts.render(host, {
+        sitekey: TURNSTILE_SITE_KEY,
+        size: "normal",
+        appearance: "interaction-only",
+        callback: (token: string) => {
+          clearTimeout(timer);
+          done(() => resolve(token));
+        },
+        "error-callback": () => {
+          clearTimeout(timer);
+          done(() => reject(new Error("turnstile error")));
+        },
+        "timeout-callback": () => {
+          clearTimeout(timer);
+          done(() => reject(new Error("turnstile timeout")));
+        },
+      });
+    } catch (e) {
+      clearTimeout(timer);
+      done(() => reject(e as Error));
+    }
+  });
+}
+
+function leadingZeroBits(bytes: Uint8Array): number {
+  let bits = 0;
+  for (const byte of bytes) {
+    if (byte === 0) {
+      bits += 8;
+      continue;
+    }
+    bits += Math.clz32(byte) - 24;
+    break;
+  }
+  return bits;
+}
+
+async function solvePow(): Promise<{ powChallenge: string; powCounter: number }> {
+  const challengeRes = await fetch(`${API_BASE}/pow-challenge`, {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!challengeRes.ok) throw new Error("安全验证暂时不可用");
+  const { challenge, difficulty } = (await challengeRes.json()) as { challenge: string; difficulty: number };
+  const encoder = new TextEncoder();
+  for (let base = 0; base <= 4_194_304; base += 128) {
+    const digests = await Promise.all(
+      Array.from({ length: 128 }, (_, i) => crypto.subtle.digest("SHA-256", encoder.encode(`${challenge}:${base + i}`)))
+    );
+    const found = digests.findIndex((digest) => leadingZeroBits(new Uint8Array(digest)) >= difficulty);
+    if (found >= 0) return { powChallenge: challenge, powCounter: base + found };
+    if (base % 2048 === 0) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error("安全验证计算超时，请重试");
+}
+
+async function postSession(body: Record<string, unknown>): Promise<Response> {
+  return fetch(`${API_BASE}/session`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+async function establishTrustedSession(): Promise<void> {
+  let res: Response | null = null;
+  try {
+    const turnstileToken = await getTurnstileToken();
+    res = await postSession({ turnstileToken });
+    if (res.ok) return;
+  } catch (error) {
+    console.warn("Turnstile 不可用，走 PoW 回退", error);
+  }
+
+  const proof = await solvePow();
+  res = await postSession(proof);
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as Partial<ErrorResponse>;
+    throw new Error(data.message || "安全验证未通过，请重试");
+  }
+}
+
 // --- App ---
 
 export default function App() {
@@ -128,6 +247,41 @@ export default function App() {
   const progressRef = useRef(0);
   const sseRetriesRef = useRef(0);
   const currentTaskIdRef = useRef<string | null>(null);
+  const beamRef = useRef<HTMLDivElement | null>(null);
+
+  // 追随光斑（SPEC-351）：rAF lerp 迟滞跟随鼠标。reduced-motion / 触屏 → 静态居中。
+  useEffect(() => {
+    const beam = beamRef.current;
+    if (!beam) return;
+    const reduced = !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const coarse = !!window.matchMedia?.("(pointer: coarse)").matches;
+    if (reduced || coarse) return;
+
+    let tx = window.innerWidth * 0.5;
+    let ty = window.innerHeight * 0.44;
+    let x = tx;
+    let y = ty;
+    let raf = 0;
+
+    const onMove = (e: PointerEvent) => {
+      tx = e.clientX;
+      ty = e.clientY;
+    };
+    const loop = () => {
+      x += (tx - x) * 0.085;
+      y += (ty - y) * 0.085;
+      beam.style.setProperty("--bx", `${x.toFixed(1)}px`);
+      beam.style.setProperty("--by", `${y.toFixed(1)}px`);
+      raf = requestAnimationFrame(loop);
+    };
+
+    window.addEventListener("pointermove", onMove, { passive: true });
+    raf = requestAnimationFrame(loop);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      cancelAnimationFrame(raf);
+    };
+  }, []);
 
   useEffect(() => {
     fetchQuota();
@@ -136,7 +290,12 @@ export default function App() {
 
   async function fetchQuota() {
     try {
-      const res = await fetch(`${API_BASE}/quota${TEST_PARAM}`, { credentials: "include" });
+      let res = await fetch(`${API_BASE}/quota${TEST_PARAM}`, { credentials: "include" });
+      // 无 session：先建立一次（managed Turnstile 低风险不可见），再重查。
+      if (res.status === 403 && !TEST_PARAM) {
+        await establishTrustedSession();
+        res = await fetch(`${API_BASE}/quota${TEST_PARAM}`, { credentials: "include" });
+      }
       if (res.ok) {
         const data: QuotaResponse = await res.json();
         setRemaining(data.remaining);
@@ -144,7 +303,7 @@ export default function App() {
         if (data.remaining <= 0) setRateLimited(true);
       }
     } catch {
-      // 配额查询静默失败
+      // 配额查询静默失败（含安全验证不可用，不影响生成主流程）
     }
   }
 
@@ -359,15 +518,38 @@ export default function App() {
     cleanup();
 
     try {
-      const res = await fetch(`${API_BASE}/generate${TEST_PARAM}`, {
+      const sendGenerate = () => fetch(`${API_BASE}/generate${TEST_PARAM}`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: trimmed, showtime, lang }),
       });
 
+      let res = await sendGenerate();
+      // 无有效 session → 先建立（Turnstile → PoW 回退），再重试一次。
+      if (res.status === 403 && !TEST_PARAM) {
+        const data = (await res.clone().json().catch(() => ({}))) as ErrorResponse;
+        if (data.error === "verification_required") {
+          try {
+            await establishTrustedSession();
+            res = await sendGenerate();
+          } catch {
+            setError(t("err.verifyFailed"));
+            setPhase("error");
+            setLoading(false);
+            return;
+          }
+        }
+      }
+
       const body: ErrorResponse & EnqueueResponse = await res.json().catch(() => ({} as ErrorResponse));
 
+      if (res.status === 403) {
+        setError(t("err.verifyFailed"));
+        setPhase("error");
+        setLoading(false);
+        return;
+      }
       if (res.status === 429) {
         setRateLimited(true);
         setRemaining(0);
@@ -431,6 +613,8 @@ export default function App() {
   return (
     <div className="shell">
       <div className="grain" aria-hidden="true" />
+      <div className="beam" ref={beamRef} aria-hidden="true" />
+      <div className="vignette" aria-hidden="true" />
 
       <header className="topbar rise">
         <a className="wordmark" href="/" onClick={(e) => e.preventDefault()}>
