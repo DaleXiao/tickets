@@ -4,7 +4,7 @@
 // 架构对齐 fleet 现有 worker（icon-forge / ukiyo-e）：
 //   - LLM 调用全走 api-llm.openclawd.co gateway，带 x-llm-usecase 头（SPEC-285 模式）
 //   - 异步队列：Durable Object + SSE 流式 + KV 任务缓存（poll 兜底）
-//   - 限流：IP 级日配额 + 短时突发（MVP 边界 = 简单 KV 计数，不含 Turnstile/PoW）
+//   - 限流：trusted session 日配额（Turnstile/PoW 引导建立）+ IP 短时突发（SPEC-351）
 
 export interface Env {
   RATE_LIMIT: KVNamespace;
@@ -13,6 +13,8 @@ export interface Env {
   LLM_GATEWAY_URL: string;
   ENVIRONMENT: string;
   GENERATION_QUEUE: DurableObjectNamespace;
+  // SPEC-351：Cloudflare Turnstile site secret（部署前置，Cindy 写入）。
+  TURNSTILE_SECRET?: string;
 }
 
 // --- Types ---
@@ -52,6 +54,7 @@ interface QueueTask {
   showtime: string;
   seat: string;
   ip: string;
+  sessionId?: string;
   isTestMode: boolean;
   testRemaining?: number;
   promptModel: string;
@@ -69,9 +72,13 @@ interface SSEWriter {
   taskId: string;
 }
 
+type TrustedSession = { sid: string; exp: number };
+
+type PowPayload = { nonce: string; exp: number; ipTag: string };
+
 // --- Constants ---
 
-// 免费使用，IP 级日配额。阈值自定（SPEC-345 MVP）。
+// 免费使用，session 维度日配额（SPEC-351）。阈值自 SPEC-345 MVP 保持 10。
 const DAILY_LIMIT = 10;
 // ?test 模式给真·端到端测试用，但要单独封顶付费输出（对齐 icon-forge/ukiyo-e）。
 const TEST_DAILY_IMAGE_LIMIT = 100;
@@ -110,6 +117,14 @@ const ALLOWED_ORIGINS = new Set<string>([
 
 const BURST_WINDOW_SECONDS = 60;
 const BURST_LIMIT = 5;
+
+// SPEC-351：trusted anonymous session（与 icon-forge SPEC-341 同款机制）。
+const SESSION_COOKIE = "trusted_session";
+const SESSION_CONTEXT = "trusted-session-v1";
+const POW_CONTEXT = "pow-challenge-v1";
+const POW_DIFFICULTY = 16;
+const POW_TTL_MS = 2 * 60_000;
+const POW_COUNTER_MAX = 4_194_304;
 
 // poll 兜底缓存 TTL（对齐 ukiyo-e）。
 const TASK_CACHE_TTL_SECONDS = 300;
@@ -184,14 +199,14 @@ function getClientIP(request: Request): string {
   );
 }
 
-function getTodayKey(ip: string): string {
-  const today = new Date().toISOString().slice(0, 10);
-  return `limit:${ip}:${today}`;
-}
-
 async function getCount(kv: KVNamespace, key: string): Promise<number> {
   const raw = await kv.get(key);
   return raw ? parseInt(raw, 10) || 0 : 0;
+}
+
+function sessionLimitKey(sessionId: string): string {
+  const today = new Date().toISOString().slice(0, 10);
+  return `session-limit:${sessionId}:${today}`;
 }
 
 function isAllowedOrigin(request: Request): boolean {
@@ -215,25 +230,172 @@ async function checkBurst(kv: KVNamespace, ip: string): Promise<{ allowed: boole
   return { allowed: true };
 }
 
-async function checkRateLimit(kv: KVNamespace, ip: string): Promise<{ allowed: boolean; remaining: number }> {
-  const count = await getCount(kv, getTodayKey(ip));
-  if (count >= DAILY_LIMIT) return { allowed: false, remaining: 0 };
-  return { allowed: true, remaining: DAILY_LIMIT - count };
+// --- session 维度日配额（SPEC-351）---
+
+async function checkSessionLimit(kv: KVNamespace, sessionId: string): Promise<{ allowed: boolean; remaining: number }> {
+  const count = await getCount(kv, sessionLimitKey(sessionId));
+  return { allowed: count < DAILY_LIMIT, remaining: Math.max(0, DAILY_LIMIT - count) };
 }
 
-async function incrementRateLimit(kv: KVNamespace, ip: string): Promise<number> {
-  const key = getTodayKey(ip);
+async function incrementSessionLimit(kv: KVNamespace, sessionId: string): Promise<number> {
+  const key = sessionLimitKey(sessionId);
   const next = (await getCount(kv, key)) + 1;
   try {
     await kv.put(key, String(next), { expirationTtl: 86400 });
   } catch (e) {
-    console.warn("[ratelimit] KV put failed (quota?), allowing through:", (e as Error)?.message);
+    console.warn("[sessionlimit] KV put failed (quota?), allowing through:", (e as Error)?.message);
   }
   return Math.max(0, DAILY_LIMIT - next);
 }
 
-async function getRemainingQuota(kv: KVNamespace, ip: string): Promise<number> {
-  return Math.max(0, DAILY_LIMIT - (await getCount(kv, getTodayKey(ip))));
+async function getSessionRemainingQuota(kv: KVNamespace, sessionId: string): Promise<number> {
+  return Math.max(0, DAILY_LIMIT - (await getCount(kv, sessionLimitKey(sessionId))));
+}
+
+// --- trusted anonymous session（SPEC-351，与 icon-forge SPEC-341 同款）---
+
+function base64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function fromBase64Url(value: string): Uint8Array {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(normalized + "=".repeat((4 - (normalized.length % 4)) % 4));
+  return Uint8Array.from(binary, (c) => c.charCodeAt(0));
+}
+
+async function sessionKey(secret: string): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]
+  );
+}
+
+async function issueTrustedSession(secret: string): Promise<{ value: string; session: TrustedSession }> {
+  const now = Date.now();
+  const nextUtcDay = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate() + 1);
+  const session: TrustedSession = { sid: crypto.randomUUID(), exp: Math.min(now + 86_400_000, nextUtcDay) };
+  const payload = base64Url(new TextEncoder().encode(JSON.stringify(session)));
+  const message = new TextEncoder().encode(`${SESSION_CONTEXT}.${payload}`);
+  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", await sessionKey(secret), message));
+  return { value: `${payload}.${base64Url(signature)}`, session };
+}
+
+async function verifyTrustedSession(request: Request, secret?: string): Promise<TrustedSession | null> {
+  if (!secret) return null;
+  const raw = request.headers.get("Cookie")?.split(";").map((v) => v.trim())
+    .find((v) => v.startsWith(`${SESSION_COOKIE}=`))?.slice(SESSION_COOKIE.length + 1);
+  if (!raw) return null;
+  const [payload, signature, extra] = raw.split(".");
+  if (!payload || !signature || extra) return null;
+  try {
+    const valid = await crypto.subtle.verify(
+      "HMAC", await sessionKey(secret), fromBase64Url(signature),
+      new TextEncoder().encode(`${SESSION_CONTEXT}.${payload}`)
+    );
+    if (!valid) return null;
+    const parsed = JSON.parse(new TextDecoder().decode(fromBase64Url(payload))) as TrustedSession;
+    if (!parsed.sid || !Number.isFinite(parsed.exp) || parsed.exp <= Date.now()) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function hmacValue(secret: string, context: string, payload: string): Promise<string> {
+  const bytes = new Uint8Array(await crypto.subtle.sign(
+    "HMAC", await sessionKey(secret), new TextEncoder().encode(`${context}.${payload}`)
+  ));
+  return base64Url(bytes);
+}
+
+async function ipTag(secret: string, ip: string): Promise<string> {
+  return (await hmacValue(secret, "pow-ip-v1", ip)).slice(0, 16);
+}
+
+function hasLeadingZeroBits(bytes: Uint8Array, bits: number): boolean {
+  const full = Math.floor(bits / 8);
+  for (let i = 0; i < full; i++) if (bytes[i] !== 0) return false;
+  const remainder = bits % 8;
+  return remainder === 0 || (bytes[full] & (0xff << (8 - remainder))) === 0;
+}
+
+async function verifyPow(request: Request, env: Env, challenge: string, counter: number): Promise<boolean> {
+  if (!env.TURNSTILE_SECRET || !Number.isSafeInteger(counter) || counter < 0 || counter > POW_COUNTER_MAX) return false;
+  const [encoded, signature, extra] = challenge.split(".");
+  if (!encoded || !signature || extra) return false;
+  const expected = await hmacValue(env.TURNSTILE_SECRET, POW_CONTEXT, encoded);
+  if (expected.length !== signature.length) return false;
+  let different = 0;
+  for (let i = 0; i < expected.length; i++) different |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
+  if (different !== 0) return false;
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(fromBase64Url(encoded))) as PowPayload;
+    if (!payload.nonce || payload.exp < Date.now() || payload.exp > Date.now() + POW_TTL_MS + 5_000) return false;
+    if (payload.ipTag !== await ipTag(env.TURNSTILE_SECRET, getClientIP(request))) return false;
+    const replayKey = `pow-used:${payload.nonce}`;
+    if (await env.RATE_LIMIT.get(replayKey)) return false;
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${challenge}:${counter}`)));
+    if (!hasLeadingZeroBits(digest, POW_DIFFICULTY)) return false;
+    await env.RATE_LIMIT.put(replayKey, "1", { expirationTtl: 180 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function verifyTurnstile(token: string, env: Env, ip: string): Promise<boolean> {
+  if (!env.TURNSTILE_SECRET) return false;
+  if (!token) return false;
+  try {
+    const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ secret: env.TURNSTILE_SECRET, response: token, remoteip: ip }),
+    });
+    const data = (await res.json()) as { success?: boolean };
+    return !!data.success;
+  } catch {
+    return false;
+  }
+}
+
+async function issuePowChallenge(request: Request, env: Env): Promise<Response> {
+  if (!env.TURNSTILE_SECRET) return jsonResponse({ error: "verification_unavailable" }, 503);
+  const payload: PowPayload = {
+    nonce: crypto.randomUUID(),
+    exp: Date.now() + POW_TTL_MS,
+    ipTag: await ipTag(env.TURNSTILE_SECRET, getClientIP(request)),
+  };
+  const encoded = base64Url(new TextEncoder().encode(JSON.stringify(payload)));
+  const signature = await hmacValue(env.TURNSTILE_SECRET, POW_CONTEXT, encoded);
+  return jsonResponse({ challenge: `${encoded}.${signature}`, difficulty: POW_DIFFICULTY }, 200);
+}
+
+async function handleSessionBootstrap(request: Request, env: Env): Promise<Response> {
+  let body: { turnstileToken?: string; powChallenge?: string; powCounter?: number };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return jsonResponse({ error: "invalid_input", message: "无效的验证请求" }, 400);
+  }
+  const ip = getClientIP(request);
+  const turnstileOk = !!body.turnstileToken && await verifyTurnstile(body.turnstileToken, env, ip);
+  const powOk = !!body.powChallenge && await verifyPow(request, env, body.powChallenge, Number(body.powCounter));
+  if ((!turnstileOk && !powOk) || !env.TURNSTILE_SECRET) {
+    return jsonResponse({ error: "verification_failed", message: "安全验证未通过，请重试" }, 403);
+  }
+  const { value, session } = await issueTrustedSession(env.TURNSTILE_SECRET);
+  const maxAge = Math.max(1, Math.floor((session.exp - Date.now()) / 1000));
+  return new Response(JSON.stringify({ ok: true, expiresAt: session.exp }), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      "Set-Cookie": `${SESSION_COOKIE}=${value}; Max-Age=${maxAge}; Path=/api; HttpOnly; Secure; SameSite=Strict`,
+      ...CORS_HEADERS,
+    },
+  });
 }
 
 // --- Prompt 改写 ---
@@ -417,6 +579,7 @@ export class GenerationQueue {
       showtime: string;
       seat: string;
       ip: string;
+      sessionId?: string;
       isTestMode: boolean;
       promptModel: string;
     };
@@ -445,6 +608,7 @@ export class GenerationQueue {
       showtime: body.showtime,
       seat: body.seat,
       ip: body.ip,
+      sessionId: body.sessionId,
       isTestMode: body.isTestMode,
       testRemaining,
       promptModel: body.promptModel || PROMPT_MODEL,
@@ -599,7 +763,9 @@ export class GenerationQueue {
 
         const remaining = task.isTestMode
           ? (task.testRemaining ?? 0)
-          : await incrementRateLimit(this.env.RATE_LIMIT, task.ip);
+          : task.sessionId
+            ? await incrementSessionLimit(this.env.RATE_LIMIT, task.sessionId)
+            : 0;
         task.remaining = remaining;
 
         task.status = "complete";
@@ -745,13 +911,21 @@ async function handleGenerate(request: Request, env: Env): Promise<Response> {
   const isTestMode = url.searchParams.has("test");
   const promptModel = PROMPT_MODEL;
 
+  let trustedSession: TrustedSession | null = null;
   if (!isTestMode) {
+    // 生产生成需要 server 签名的匿名 session（Turnstile/PoW 引导建立一次）。
+    trustedSession = await verifyTrustedSession(request, env.TURNSTILE_SECRET);
+    if (!trustedSession) {
+      return jsonResponse({ error: "verification_required", message: "需要完成一次安全验证" }, 403);
+    }
+    // IP 突发限流（5/60s）保留为第二道闸。
     const burst = await checkBurst(env.RATE_LIMIT, ip);
     if (!burst.allowed) {
       return jsonResponse({ error: "rate_limited_burst", message: `请求太快，请 ${burst.retryAfter}s 后再试` }, 429);
     }
-    const { allowed } = await checkRateLimit(env.RATE_LIMIT, ip);
-    if (!allowed) {
+    // session 维度日配额 10/天（取代原 IP 日配额）。
+    const sessionQuota = await checkSessionLimit(env.RATE_LIMIT, trustedSession.sid);
+    if (!sessionQuota.allowed) {
       return jsonResponse({ error: "rate_limited", message: "今天免费额度已用完，请明天再来" }, 429);
     }
   }
@@ -766,7 +940,7 @@ async function handleGenerate(request: Request, env: Env): Promise<Response> {
       new Request("https://do/enqueue", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskId, title, showtime, seat, ip, isTestMode, promptModel }),
+        body: JSON.stringify({ taskId, title, showtime, seat, ip, sessionId: trustedSession?.sid, isTestMode, promptModel }),
       })
     );
   } catch (e) {
@@ -807,7 +981,12 @@ async function handleQuota(request: Request, env: Env): Promise<Response> {
     const doId = env.GENERATION_QUEUE.idFromName("singleton");
     return env.GENERATION_QUEUE.get(doId).fetch("https://do/test-quota");
   }
-  const remaining = await getRemainingQuota(env.RATE_LIMIT, getClientIP(request));
+  // 配额改 session 维度：无有效 session → 403。
+  const trustedSession = await verifyTrustedSession(request, env.TURNSTILE_SECRET);
+  if (!trustedSession) {
+    return jsonResponse({ error: "verification_required", message: "需要完成一次安全验证" }, 403);
+  }
+  const remaining = await getSessionRemainingQuota(env.RATE_LIMIT, trustedSession.sid);
   return jsonResponse({ remaining, total: DAILY_LIMIT }, 200);
 }
 
@@ -864,6 +1043,18 @@ export default {
 
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
+    }
+
+    if (path === "/api/pow-challenge" && request.method === "POST") {
+      if (!isAllowedOrigin(request)) return jsonResponse({ error: "forbidden" }, 403);
+      return issuePowChallenge(request, env);
+    }
+
+    if (path === "/api/session" && request.method === "POST") {
+      if (!isAllowedOrigin(request)) {
+        return jsonResponse({ error: "forbidden", message: "origin not allowed" }, 403);
+      }
+      return handleSessionBootstrap(request, env);
     }
 
     if (path === "/api/generate" && request.method === "POST") {

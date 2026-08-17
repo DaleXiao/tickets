@@ -96,6 +96,61 @@ body {
   background-size: 240px 240px;
 }
 
+/* —— 追随光斑（SPEC-351）——
+   放映机光束（深色）/ 日光池（浅色）。单层 radial-gradient 由 --bx/--by 驱动，
+   rAF lerp（系数 0.085）迟滞跟随鼠标。z-index 在内容之上、grain(9999) 之下；
+   pointer-events:none 不拦截任何交互。移动端 / reduced-motion 走静态居中原位。 */
+.beam {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  /* 浅色默认：低透明度暖金日光池（亮底上投影不成立，故无闪烁、无暗角） */
+  background: radial-gradient(
+    ellipse 360px 320px at var(--bx, 50%) var(--by, 44%),
+    rgba(212, 160, 84, 0.17) 0%,
+    rgba(212, 160, 84, 0.07) 38%,
+    rgba(212, 160, 84, 0.02) 58%,
+    transparent 72%
+  );
+}
+
+/* 深色：放映机光束 + 极轻微闪烁（90ms 颤） */
+.dark .beam {
+  background: radial-gradient(
+    ellipse 360px 320px at var(--bx, 50%) var(--by, 44%),
+    rgba(238, 196, 124, 0.22) 0%,
+    rgba(212, 160, 84, 0.10) 36%,
+    rgba(212, 160, 84, 0.03) 55%,
+    transparent 70%
+  );
+  animation: beam-flicker 90ms infinite;
+}
+
+@keyframes beam-flicker {
+  0%,
+  100% { opacity: 1; }
+  50% { opacity: 0.955; }
+}
+
+/* 深色四角暗角（常驻，独立于光束闪烁，盖在光束之上使边缘始终压暗） */
+.vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  display: none;
+}
+
+.dark .vignette {
+  display: block;
+  background: radial-gradient(
+    ellipse 90% 80% at 50% 46%,
+    transparent 52%,
+    rgba(0, 0, 0, 0.6) 100%
+  );
+}
+
 /* ============ 布局 ============ */
 
 .shell {
@@ -582,6 +637,7 @@ body {
   .skeleton { animation: none; }
   .rise { animation: none; }
   .btn, .knob { transition: none; }
+  .dark .beam { animation: none; }
 }
 
 /* ============ 窄屏（移动端） ============ */
