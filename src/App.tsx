@@ -34,7 +34,7 @@ const TEST_PARAM = new URLSearchParams(window.location.search).has("test") ? "?t
 // SPEC-351：Cloudflare Turnstile site key（public，入 bundle 安全）。
 // 部署前置：由 Cindy 为 tickets.openclawd.co 注册 widget 后替换为正式值；
 // 开发期复用 icon-forge 既有 site key 联调。
-const TURNSTILE_SITE_KEY = "0x4AAAAAADCaJjLh7I5xepTX";
+const TURNSTILE_SITE_KEY = "0x4AAAAAAESKy9LTqTcI0IpM";
 
 const TASK_POLL_MS = 5000;
 
