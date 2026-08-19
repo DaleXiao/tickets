@@ -160,9 +160,7 @@ body {
 }
 
 .topbar {
-  position: sticky;
-  top: 0;
-  z-index: 50;
+  /* v1.6.1（Dale 16:26）：不再 sticky 悬浮——悬浮会叠住下方文字，顶栏随页面滚动即可 */
   display: flex;
   align-items: center;
   justify-content: space-between;
