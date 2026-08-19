@@ -4,3 +4,5 @@ dist
 *.local
 .dev.vars
 worker/.dev.vars
+# wrangler local dev state (miniflare cache)
+worker/.wrangler/state/
