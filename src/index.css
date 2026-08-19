@@ -244,25 +244,6 @@ body {
   padding-top: 1.6rem;
 }
 
-.kicker {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  font-family: var(--font-sans);
-  font-size: 0.7rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-  margin-bottom: 1.6rem;
-}
-
-.kicker::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--edge);
-}
-
 .field {
   display: flex;
   flex-direction: column;
@@ -283,14 +264,6 @@ body {
 
 .field-label .req {
   color: var(--accent);
-}
-
-/* v1.6：选填标记（首映年份 / 经典台词）——比 req 更弱，不与必填争视觉 */
-.field-label .opt {
-  color: var(--ink-faint);
-  opacity: 0.7;
-  text-transform: none;
-  letter-spacing: 0.04em;
 }
 
 .input {

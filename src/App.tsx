@@ -229,9 +229,6 @@ export default function App() {
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(todayStr());
   const [time, setTime] = useState("20:00");
-  // v1.6：首映年份 / 经典台词——选填覆盖，留空由联网检索自动带出。
-  const [year, setYear] = useState("");
-  const [quote, setQuote] = useState("");
   const [loading, setLoading] = useState(false);
   const [icon, setIcon] = useState<IconResult | null>(null);
   const [remaining, setRemaining] = useState<number | null>(null);
@@ -525,13 +522,7 @@ export default function App() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: trimmed,
-          showtime,
-          lang,
-          year: year.trim() || undefined,
-          quote: quote.trim() || undefined,
-        }),
+        body: JSON.stringify({ title: trimmed, showtime, lang }),
       });
 
       let res = await sendGenerate();
@@ -589,7 +580,7 @@ export default function App() {
       setPhase("error");
       setLoading(false);
     }
-  }, [title, date, time, showtime, lang, year, quote, t]);
+  }, [title, date, time, showtime, lang, t]);
 
   async function handleDownload() {
     if (!icon) return;
@@ -644,7 +635,6 @@ export default function App() {
 
         {/* 表单 */}
         <section className="form rise rise-2" aria-label={t("sec.film")}>
-          <span className="kicker">01</span>
           <div className="field">
             <label htmlFor="title" className="field-label">
               {t("field.title")} <span className="req">*</span>
@@ -695,49 +685,6 @@ export default function App() {
                   setTime(e.target.value);
                   setError(null);
                 }}
-                disabled={loading}
-              />
-            </div>
-          </div>
-
-          {/* v1.6：选填覆盖——留空则联网检索自动带出首映年份与经典台词 */}
-          <div className="row">
-            <div className="field">
-              <label htmlFor="year" className="field-label">
-                {t("field.year")} <span className="opt">{t("field.optional")}</span>
-              </label>
-              <input
-                id="year"
-                className="input"
-                type="text"
-                inputMode="numeric"
-                value={year}
-                maxLength={4}
-                placeholder={t("field.year.placeholder")}
-                onChange={(e) => {
-                  setYear(e.target.value.replace(/[^0-9]/g, ""));
-                  setError(null);
-                }}
-                onKeyDown={handleKeyDown}
-                disabled={loading}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="quote" className="field-label">
-                {t("field.quote")} <span className="opt">{t("field.optional")}</span>
-              </label>
-              <input
-                id="quote"
-                className="input"
-                type="text"
-                value={quote}
-                maxLength={60}
-                placeholder={t("field.quote.placeholder")}
-                onChange={(e) => {
-                  setQuote(e.target.value);
-                  setError(null);
-                }}
-                onKeyDown={handleKeyDown}
                 disabled={loading}
               />
             </div>
