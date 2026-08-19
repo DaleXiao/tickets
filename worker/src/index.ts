@@ -42,10 +42,13 @@ interface ChatResponse {
 
 // qwen3.8-max 结构化输出：只产出「插画 + 版面 + 配色」三个叙事槽，
 // 片名与时间原文由 worker 侧注入，不信任 LLM 转写（中文长片名乱码风险高）。
+// v1.6：新增 year/quote 两个事实槽（联网检索提取，worker 清洗后逐字注入）。
 interface TicketPrompt {
   illustration: string; // 抽象插画描述
   layout: string;       // 版面指令（插画/文字字段的相对位置）
   palette: string;      // 配色 + 情绪
+  year?: string;        // 首映年份（4 位数字，查不到 = 空串）
+  quote?: string;       // 经典台词（原文短句，无广泛流传句 = 空串）
 }
 
 interface QueueTask {
@@ -53,6 +56,9 @@ interface QueueTask {
   title: string;
   showtime: string;
   seat: string;
+  // v1.6：用户手填覆盖（选填）；缺省由联网检索自动带出。
+  year?: string;
+  quote?: string;
   ip: string;
   sessionId?: string;
   isTestMode: boolean;
@@ -149,31 +155,85 @@ The illustration must evoke the film through its SINGLE most iconic, recognizabl
 2. SIMPLEST POSSIBLE — 1 dominant motif, at most 1 supporting shape. Flat solid fills, no gradients, no texture detail, no depth. Large negative space around the motif. Abstract in style, accurate in silhouette, instantly nameable. Crowded or busy tickets look cheap and AI-generated.
 3. MINIMALIST POSTER-GRADE — think a 1950s–70s minimalist film poster: a single bold geometric shape against empty field, not a populated scene. Never enumerate a roster of scenes or objects; never stack decorative detail.
 4. TWO TO THREE COLORS — a tight, disciplined palette (2–3 ink colors + the paper). The palette must match the film's emotional register (noir = near-black + one warm accent; comedy = warm cream + one bright; horror = near-black + one blood accent).
-5. NEVER WRITE TEXT — your JSON describes ILLUSTRATION + LAYOUT + PALETTE only. The system injects the film title and showtime strings separately as exact text. You must NOT reproduce or transliterate them.
+5. NEVER WRITE TEXT — your JSON describes ILLUSTRATION + LAYOUT + PALETTE only. The system injects the film title and showtime strings separately as exact text. You must NOT reproduce or transliterate them. Since v1.6 the JSON additionally carries two FACT fields (year, quote) defined below; the system renders them as tiny fine print — never weave the year or quote into the illustration/layout/palette descriptions.
+
+━━━ FACT FIELDS (v1.6) ━━━
+Besides the visual slots, output two factual fields that the system renders as tiny fine-print text near the barcode:
+- "year": the film's original theatrical PREMIERE YEAR as a 4-digit year string (e.g. "2000"). Use web-search results when available — verify against release records rather than memory. If the film is unreleased, or the year cannot be established with confidence, output "".
+- "quote": ONE iconic, widely-known line of dialogue FROM the film, in the film's original language, kept extremely short — at most 10 Chinese characters (or at most ~8 words for alphabetic languages). Quote it verbatim as it is commonly cited; never paraphrase, never invent. If the film has no widely-known signature line, output "".
+These two fields are DATA, not illustration content: never weave the year or quote into the illustration/layout/palette descriptions.
 
 ━━━ OUTPUT FORMAT ━━━
 Output ONLY valid JSON (no markdown fences, no commentary):
 {
   "illustration": "abstract graphic description: the single iconic motif, concrete flat shapes, composition (2-3 sentences max)",
   "layout": "where the illustration sits on the ticket relative to the text block (e.g. a left flat motif with the typeset title+time on the right; or a large background motif with a reserved bottom text strip)",
-  "palette": "2-3 concrete colors named as hex-like descriptions + the single mood word they create"
+  "palette": "2-3 concrete colors named as hex-like descriptions + the single mood word they create",
+  "year": "4-digit premiere year, or empty string",
+  "quote": "one iconic short line from the film in its original language, or empty string"
 }`;
 
+// --- v1.6 事实字段清洗（首映年份 / 经典台词）---
+// 原则：宁缺毋滥。不合法 = 丢弃，票根回落到四行经典版式。
+
+// 首映年份：只收 4 位数字（电影史范围 1888–2035）。
+function sanitizeYear(raw: unknown): string | undefined {
+  const y = String(raw ?? "").trim();
+  if (!/^\d{4}$/.test(y)) return undefined;
+  const n = parseInt(y, 10);
+  return n >= 1888 && n <= 2035 ? y : undefined;
+}
+
+// 台词长度上限：CJK ≤10 字（Dale 验收标准），西文 ≤60 字符（≈8 词）。
+const QUOTE_MAX_CJK = 10;
+const QUOTE_MAX_LATIN = 60;
+
+function sanitizeQuote(raw: unknown): string | undefined {
+  const q = String(raw ?? "").trim().replace(/\s+/g, " ");
+  if (!q) return undefined;
+  const hasCJK = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u3040-\u30ff\uac00-\ud7af]/.test(q);
+  const max = hasCJK ? QUOTE_MAX_CJK : QUOTE_MAX_LATIN;
+  if ([...q].length > max) return undefined;
+  return q;
+}
+
 export function assembleTicketPrompt(title: string, showtime: string, seat: string, p: TicketPrompt): string {
+  // v1.6 脚注行：首映年份 + 经典台词，小字斜体贴在条形码上方（样张验收版式）。
+  const year = sanitizeYear(p.year);
+  const quote = sanitizeQuote(p.quote);
+  const finePrint = year && quote ? `首映 ${year} · ${quote}` : year ? `首映 ${year}` : quote;
+
+  const lineCountLine = finePrint
+    ? "The ticket carries EXACTLY FIVE lines of typeset text and nothing else."
+    : "The ticket carries EXACTLY FOUR lines of typeset text and nothing else.";
+
+  const finePrintLine = finePrint
+    ? `Line 5 — the fine-print line, typeset NOTICEABLY SMALLER than every other line, in gentle italic with faint ink, sitting directly above the barcode strip at the very bottom, clearly de-emphasized like a printed footnote: "${finePrint}"`
+    : null;
+
+  const hierarchyLine = finePrint
+    ? "Typeset all five lines with elegant editorial hierarchy: title largest, showtime clearly smaller, seat number small and discreet, cinema name in wide letter-spaced small-caps, and the fine-print line smallest and faintest of all — it must not compete with the title or showtime for attention. Lines 1-4 share one alignment axis (either all left-aligned, or all centered); line 5 sits alone just above the barcode. The typesetting must read like a refined print ticket, not label stickers."
+    : "Typeset all four lines with elegant editorial hierarchy: title largest, showtime clearly smaller, cinema name smallest with wide letter-spacing, seat number small and discreet near the bottom. All text lines share one alignment axis (either all left-aligned, or all centered). The typesetting must read like a refined print ticket, not label stickers.";
+
+  const onlyTextLine = finePrint
+    ? "Do NOT render any field-label words (no 'Film title', no 'Showtime', no 'ADMIT ONE', no 'SEAT'). Do NOT invent any extra text — no price, no venue name other than ELSEWHERE CINEMA, no date sub-fields, no pseudo-Latin filler, no invented words, no signage. The ONLY readable text on the entire ticket is the five lines above."
+    : "Do NOT render any field-label words (no 'Film title', no 'Showtime', no 'ADMIT ONE', no 'SEAT'). Do NOT invent any extra text — no price, no venue name other than ELSEWHERE CINEMA, no date sub-fields, no pseudo-Latin filler, no invented words, no signage. The ONLY readable text on the entire ticket is the four lines above.";
+
   return [
     "A flat, graphic, minimalist poster-grade cinema ticket stub illustration, landscape 3:2, printed on warm cream ticket stock with subtle paper-fiber texture and a clean perforated-edge silhouette (a row of small notches on one short side).",
     p.illustration,
     p.layout,
     p.palette,
     "",
-    "The ticket carries EXACTLY FOUR lines of typeset text and nothing else.",
+    lineCountLine,
     `Line 1 — the film title, typeset large and elegant in an editorial Didone/Garamond serif, on its own line: "${title}"`,
     `Line 2 — the showtime, typeset smaller beneath the title in the same serif, sharing the title's left (or center) alignment axis and clearly subordinated: "${showtime}"`,
     `Line 3 — below both, small and letter-spaced uppercase small-caps, the fixed cinema name: "ELSEWHERE CINEMA"`,
     `Line 4 — the seat number, small and elegant, in a reserved bottom area, typeset in the same serif and letter-spaced, sharing the same alignment axis: "${seat}"`,
-    "Typeset all four lines with elegant editorial hierarchy: title largest, showtime clearly smaller, cinema name smallest with wide letter-spacing, seat number small and discreet near the bottom. All text lines share one alignment axis (either all left-aligned, or all centered). The typesetting must read like a refined print ticket, not label stickers.",
+    ...(finePrintLine ? [finePrintLine] : []),
+    hierarchyLine,
     "The entire text block must sit on a clean, unobstructed, plain background area — never overlapping the illustration, the perforation notches, the barcode, or any graphic element. Reserve a dedicated plain band for the typeset lines.",
-    "Do NOT render any field-label words (no 'Film title', no 'Showtime', no 'ADMIT ONE', no 'SEAT'). Do NOT invent any extra text — no price, no venue name other than ELSEWHERE CINEMA, no date sub-fields, no pseudo-Latin filler, no invented words, no signage. The ONLY readable text on the entire ticket is the four lines above.",
+    onlyTextLine,
     "No emoji, no pictographic or emoticon symbols anywhere on the ticket.",
     "",
     "Along the bottom edge, render a single thin horizontal barcode strip with irregular, random-width vertical black bars (a real ticket stub's barcode). The barcode is decorative: it decodes to no readable characters and contains no text.",
@@ -406,7 +466,9 @@ async function synthesizeTicketPrompt(
   seat: string,
   apiKey: string,
   gatewayUrl: string,
-  model: string = PROMPT_MODEL
+  model: string = PROMPT_MODEL,
+  // v1.6：用户手填的年份/台词覆盖（已在 handleGenerate 清洗）；缺省由联网检索自动带出。
+  overrides?: { year?: string; quote?: string }
 ): Promise<string> {
   const requestBody: ChatRequest = {
     model,
@@ -469,6 +531,10 @@ async function synthesizeTicketPrompt(
   if (!parsed?.illustration || !parsed?.layout || !parsed?.palette) {
     throw new Error(`ticket prompt response missing fields: ${JSON.stringify(parsed)}`);
   }
+
+  // 手填覆盖优先于检索结果（覆盖值已清洗；assembleTicketPrompt 会再洗一次，不合法即回落）。
+  if (overrides?.year !== undefined) parsed.year = overrides.year;
+  if (overrides?.quote !== undefined) parsed.quote = overrides.quote;
 
   return assembleTicketPrompt(title, showtime, seat, parsed);
 }
@@ -578,6 +644,8 @@ export class GenerationQueue {
       title: string;
       showtime: string;
       seat: string;
+      year?: string;
+      quote?: string;
       ip: string;
       sessionId?: string;
       isTestMode: boolean;
@@ -607,6 +675,8 @@ export class GenerationQueue {
       title: body.title,
       showtime: body.showtime,
       seat: body.seat,
+      year: body.year,
+      quote: body.quote,
       ip: body.ip,
       sessionId: body.sessionId,
       isTestMode: body.isTestMode,
@@ -752,7 +822,8 @@ export class GenerationQueue {
           task.seat,
           this.env.LLM_SERVICE_TOKEN,
           this.env.LLM_GATEWAY_URL,
-          task.promptModel
+          task.promptModel,
+          { year: task.year, quote: task.quote }
         );
 
         await this.waitForCooldown();
@@ -889,9 +960,9 @@ function generateTaskId(): string {
 }
 
 async function handleGenerate(request: Request, env: Env): Promise<Response> {
-  let body: { title?: string; showtime?: string; lang?: string };
+  let body: { title?: string; showtime?: string; lang?: string; year?: string; quote?: string };
   try {
-    body = (await request.json()) as { title?: string; showtime?: string; lang?: string };
+    body = (await request.json()) as { title?: string; showtime?: string; lang?: string; year?: string; quote?: string };
   } catch {
     return jsonResponse({ error: "invalid_input", message: "请提供有效的 JSON 请求体" }, 400);
   }
@@ -899,6 +970,9 @@ async function handleGenerate(request: Request, env: Env): Promise<Response> {
   const title = body.title?.trim();
   const showtime = body.showtime?.trim();
   const seat = generateSeat(body.lang === "en" ? "en" : "zh");
+  // v1.6：手填覆盖为选填，入口即清洗（不合法视为未填，回落联网检索）。
+  const yearOverride = sanitizeYear(body.year);
+  const quoteOverride = sanitizeQuote(body.quote);
   if (!title || title.length < 1 || title.length > 120) {
     return jsonResponse({ error: "invalid_input", message: "请输入电影名（1-120 字）" }, 400);
   }
@@ -940,7 +1014,7 @@ async function handleGenerate(request: Request, env: Env): Promise<Response> {
       new Request("https://do/enqueue", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskId, title, showtime, seat, ip, sessionId: trustedSession?.sid, isTestMode, promptModel }),
+        body: JSON.stringify({ taskId, title, showtime, seat, year: yearOverride, quote: quoteOverride, ip, sessionId: trustedSession?.sid, isTestMode, promptModel }),
       })
     );
   } catch (e) {

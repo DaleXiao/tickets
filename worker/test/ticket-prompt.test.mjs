@@ -99,4 +99,37 @@ test("SPEC-350 联网检索结果优先于训练记忆（system prompt 层）", 
   assert.ok(src.includes("prefer the freshest public material"));
 });
 
+// --- v1.6：首映年份 + 经典台词（条形码上方小字脚注，Dale 样张验收版式）---
+
+test("v1.6：年份+台词作为事实槽由检索提取（system prompt 层）", () => {
+  assert.ok(src.includes("FACT FIELDS"));
+  assert.ok(src.includes("PREMIERE YEAR as a 4-digit year string"));
+  assert.ok(src.includes("at most 10 Chinese characters"));
+  assert.ok(src.includes("never paraphrase, never invent"));
+  assert.ok(src.includes('"year": "4-digit premiere year, or empty string"'));
+  assert.ok(src.includes('"quote": "one iconic short line from the film in its original language, or empty string"'));
+});
+
+test("v1.6：脚注行注入图像 prompt（第 5 行，小字斜体贴条形码上方）", () => {
+  assert.ok(src.includes("Line 5 — the fine-print line"));
+  assert.ok(src.includes("NOTICEABLY SMALLER"));
+  assert.ok(src.includes("gentle italic"));
+  assert.ok(src.includes("directly above the barcode"));
+  assert.ok(src.includes("EXACTLY FIVE lines"));
+  assert.ok(src.includes('首映 ${year} · ${quote}'));
+});
+
+test("v1.6：事实字段清洗守卫（宁缺毋滥）", () => {
+  assert.ok(src.includes("sanitizeYear"));
+  assert.ok(src.includes("sanitizeQuote"));
+  assert.ok(src.includes("QUOTE_MAX_CJK = 10"));
+  assert.ok(src.includes("n >= 1888 && n <= 2035"));
+});
+
+test("v1.6：手填覆盖优先于检索结果", () => {
+  assert.ok(src.includes("overrides?.year"));
+  assert.ok(src.includes("overrides?.quote"));
+  assert.ok(src.includes("year: yearOverride, quote: quoteOverride"));
+});
+
 console.log("ticket-prompt snapshot tests passed");
