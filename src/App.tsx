@@ -507,7 +507,8 @@ export default function App() {
     setLoading(true);
     setError(null);
     setIcon(null);
-    setRateLimited(false);
+    // 注：不在此处重置 rateLimited——额度用完后本函数不该被触发（按钮已门禁），
+    // 重置会让 UI 误显示「可生成」再被 429 打回。
     setPhase("queued");
     setQueuePosition(0);
     setRetryCountdown(0);
@@ -733,7 +734,8 @@ export default function App() {
               <div className="caption-venue">Elsewhere Cinema</div>
             </div>
             <div className="actions">
-              <button className="btn btn-primary" onClick={() => void handleGenerate()}>
+              {/* v1.6.1：额度门禁补上——此前只有主按钮 disabled，额度用完重新生成仍可点 */}
+              <button className="btn btn-primary" onClick={() => void handleGenerate()} disabled={!canGenerate}>
                 {t("btn.regenerate")}
               </button>
               <button className="btn btn-ghost" onClick={() => void handleDownload()}>

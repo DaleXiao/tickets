@@ -63,6 +63,8 @@ interface QueueTask {
   sessionId?: string;
   isTestMode: boolean;
   testRemaining?: number;
+  // v1.6.1：入队时预扣配额后的余量（complete 事件回传前端）。
+  reservedRemaining?: number;
   promptModel: string;
   status: "queued" | "generating" | "complete" | "error";
   // 单张票根，保留 icons[] 数组形态以兼容 fleet SSE 事件契约（index 恒为 0）。
@@ -264,9 +266,14 @@ async function getCount(kv: KVNamespace, key: string): Promise<number> {
   return raw ? parseInt(raw, 10) || 0 : 0;
 }
 
-function sessionLimitKey(sessionId: string): string {
-  const today = new Date().toISOString().slice(0, 10);
-  return `session-limit:${sessionId}:${today}`;
+// --- session 维度日配额（SPEC-351）---
+// v1.6.1：计数从 KV 搬进 Durable Object storage。
+// 根因：KV 最终一致（~60s 传播），入口预检查在 worker 层读到的可能是旧值，
+// 导致额度用完后快速点击仍能挤进出图（实测某 session 计数 12 > 上限 10）。
+// DO storage 强一致 + 事务，入队前预扣、失败退还（与 reserveTestImages 同款机制）。
+
+function sessionQuotaKey(sid: string, now = new Date()): string {
+  return `session-limit:${sid}:${now.toISOString().slice(0, 10)}`;
 }
 
 function isAllowedOrigin(request: Request): boolean {
@@ -288,28 +295,6 @@ async function checkBurst(kv: KVNamespace, ip: string): Promise<{ allowed: boole
     console.warn("[burst] KV put failed (quota?), allowing through:", (e as Error)?.message);
   }
   return { allowed: true };
-}
-
-// --- session 维度日配额（SPEC-351）---
-
-async function checkSessionLimit(kv: KVNamespace, sessionId: string): Promise<{ allowed: boolean; remaining: number }> {
-  const count = await getCount(kv, sessionLimitKey(sessionId));
-  return { allowed: count < DAILY_LIMIT, remaining: Math.max(0, DAILY_LIMIT - count) };
-}
-
-async function incrementSessionLimit(kv: KVNamespace, sessionId: string): Promise<number> {
-  const key = sessionLimitKey(sessionId);
-  const next = (await getCount(kv, key)) + 1;
-  try {
-    await kv.put(key, String(next), { expirationTtl: 86400 });
-  } catch (e) {
-    console.warn("[sessionlimit] KV put failed (quota?), allowing through:", (e as Error)?.message);
-  }
-  return Math.max(0, DAILY_LIMIT - next);
-}
-
-async function getSessionRemainingQuota(kv: KVNamespace, sessionId: string): Promise<number> {
-  return Math.max(0, DAILY_LIMIT - (await getCount(kv, sessionLimitKey(sessionId))));
 }
 
 // --- trusted anonymous session（SPEC-351，与 icon-forge SPEC-341 同款）---
@@ -635,6 +620,7 @@ export class GenerationQueue {
     if (path === "/stream" && request.method === "GET") return this.handleStream(request);
     if (path === "/status" && request.method === "GET") return this.handleStatus(request);
     if (path === "/test-quota" && request.method === "GET") return this.handleTestQuota();
+    if (path === "/session-quota" && request.method === "GET") return this.handleSessionQuota(request);
     return new Response("Not Found", { status: 404 });
   }
 
@@ -670,6 +656,16 @@ export class GenerationQueue {
       testRemaining = budget.remaining;
     }
 
+    // v1.6.1：session 日配额在入队前事务性预扣（DO storage 强一致，KV 旧路已弃）。
+    let reservedRemaining: number | undefined;
+    if (!body.isTestMode && body.sessionId) {
+      const quota = await this.reserveSessionQuota(body.sessionId);
+      if (!quota.allowed) {
+        return jsonResponse({ error: "rate_limited", message: "今天免费额度已用完，请明天再来", remaining: 0, total: DAILY_LIMIT }, 429);
+      }
+      reservedRemaining = quota.remaining;
+    }
+
     const task: QueueTask = {
       taskId: body.taskId,
       title: body.title,
@@ -681,6 +677,7 @@ export class GenerationQueue {
       sessionId: body.sessionId,
       isTestMode: body.isTestMode,
       testRemaining,
+      reservedRemaining,
       promptModel: body.promptModel || PROMPT_MODEL,
       status: "queued",
       icons: [],
@@ -712,6 +709,40 @@ export class GenerationQueue {
   private async handleTestQuota(): Promise<Response> {
     const used = (await this.state.storage.get<number>(this.testBudgetKey())) ?? 0;
     return jsonResponse({ remaining: Math.max(0, TEST_DAILY_IMAGE_LIMIT - used), total: TEST_DAILY_IMAGE_LIMIT });
+  }
+
+  // --- v1.6.1：session 日配额（DO storage，强一致 + 事务）---
+
+  private async reserveSessionQuota(sid: string): Promise<{ allowed: boolean; remaining: number }> {
+    const key = sessionQuotaKey(sid);
+    return this.state.storage.transaction(async (tx) => {
+      // 顺带清掉该 session 非今日的旧 key，防 storage 膨胀。
+      const stale = await tx.list<string>({ prefix: `session-limit:${sid}:` });
+      for (const [k] of stale) {
+        if (k !== key) await tx.delete(k);
+      }
+      const used = (await tx.get<number>(key)) ?? 0;
+      if (used >= DAILY_LIMIT) return { allowed: false, remaining: 0 };
+      const next = used + 1;
+      await tx.put(key, next);
+      return { allowed: true, remaining: DAILY_LIMIT - next };
+    });
+  }
+
+  private async refundSessionQuota(sid: string): Promise<void> {
+    const key = sessionQuotaKey(sid);
+    await this.state.storage.transaction(async (tx) => {
+      const used = (await tx.get<number>(key)) ?? 0;
+      if (used > 0) await tx.put(key, used - 1);
+    });
+  }
+
+  private async handleSessionQuota(request: Request): Promise<Response> {
+    const sid = new URL(request.url).searchParams.get("sid");
+    if (!sid) return jsonResponse({ error: "missing_sid", message: "缺少 sid 参数" }, 400);
+    const key = sessionQuotaKey(sid);
+    const used = (await this.state.storage.get<number>(key)) ?? 0;
+    return jsonResponse({ remaining: Math.max(0, DAILY_LIMIT - used), total: DAILY_LIMIT });
   }
 
   private handleStream(request: Request): Response {
@@ -832,11 +863,8 @@ export class GenerationQueue {
         this.sendToTask(task.taskId, "icon_ready", { url, index: 0 });
         this.lastImageFinishedAt = Date.now();
 
-        const remaining = task.isTestMode
-          ? (task.testRemaining ?? 0)
-          : task.sessionId
-            ? await incrementSessionLimit(this.env.RATE_LIMIT, task.sessionId)
-            : 0;
+        // 配额已在入队时事务性预扣，这里只读预扣后的余量。
+        const remaining = task.isTestMode ? (task.testRemaining ?? 0) : (task.reservedRemaining ?? 0);
         task.remaining = remaining;
 
         task.status = "complete";
@@ -854,6 +882,10 @@ export class GenerationQueue {
         }
       } catch (error) {
         console.error("Generation failed:", error);
+        // 生成失败退还预扣配额（不让用户为失败买单）。
+        if (!task.isTestMode && task.sessionId) {
+          await this.refundSessionQuota(task.sessionId);
+        }
         const errMsg = error instanceof Error ? error.message : String(error);
         const isThrottled = errMsg.includes("Throttling") || errMsg.includes("429") || errMsg.includes("[throttled]");
         task.status = "error";
@@ -937,6 +969,8 @@ export class GenerationQueue {
       if (now - task.createdAt > TASK_TIMEOUT_MS) {
         this.sendToTask(task.taskId, "error", { message: "任务超时，请重新提交" });
         this.closeSseClients(task.taskId);
+        // 排队超时的任务同样退还预扣配额。
+        if (!task.isTestMode && task.sessionId) void this.refundSessionQuota(task.sessionId);
         return false;
       }
       return true;
@@ -997,11 +1031,8 @@ async function handleGenerate(request: Request, env: Env): Promise<Response> {
     if (!burst.allowed) {
       return jsonResponse({ error: "rate_limited_burst", message: `请求太快，请 ${burst.retryAfter}s 后再试` }, 429);
     }
-    // session 维度日配额 10/天（取代原 IP 日配额）。
-    const sessionQuota = await checkSessionLimit(env.RATE_LIMIT, trustedSession.sid);
-    if (!sessionQuota.allowed) {
-      return jsonResponse({ error: "rate_limited", message: "今天免费额度已用完，请明天再来" }, 429);
-    }
+    // session 日配额 10/天在 DO 入队时事务性预扣（强一致）；
+    // worker 层不再用 KV 预检查（最终一致读旧值 = 超额 bug 根因，v1.6.1 移除）。
   }
 
   const taskId = generateTaskId();
@@ -1060,8 +1091,14 @@ async function handleQuota(request: Request, env: Env): Promise<Response> {
   if (!trustedSession) {
     return jsonResponse({ error: "verification_required", message: "需要完成一次安全验证" }, 403);
   }
-  const remaining = await getSessionRemainingQuota(env.RATE_LIMIT, trustedSession.sid);
-  return jsonResponse({ remaining, total: DAILY_LIMIT }, 200);
+  // v1.6.1：配额计数在 DO storage（强一致），查询经 DO 转发。
+  const doId = env.GENERATION_QUEUE.idFromName("singleton");
+  const doResponse = await env.GENERATION_QUEUE.get(doId).fetch(`https://do/session-quota?sid=${encodeURIComponent(trustedSession.sid)}`);
+  const responseBody = await doResponse.text();
+  return new Response(responseBody, {
+    status: doResponse.status,
+    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+  });
 }
 
 async function handleTaskStatus(request: Request, env: Env, taskId: string): Promise<Response> {

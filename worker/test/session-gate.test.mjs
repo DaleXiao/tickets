@@ -38,10 +38,17 @@ test("B：HMAC trusted session 签发与校验（恒时比较 + 过期判断）"
   assert.ok(src.includes('name: "HMAC"'));
 });
 
-test("B：配额改 session 维度（session-limit 取代原 IP 日配额）", () => {
-  assert.ok(src.includes("session-limit:${sessionId}:${today}"));
-  assert.ok(src.includes("incrementSessionLimit"));
-  assert.ok(src.includes("checkSessionLimit"));
+test("B：配额改 session 维度，且计数在 DO storage 强一致预扣（v1.6.1 修复超额 bug）", () => {
+  // DO 事务预扣/退还/查询在位
+  assert.ok(src.includes("reserveSessionQuota"));
+  assert.ok(src.includes("refundSessionQuota"));
+  assert.ok(src.includes("session-quota"));
+  assert.ok(src.includes("session-limit:${sid}:"));
+  assert.ok(src.includes("this.state.storage.transaction"));
+  // 旧 KV 计数路径（最终一致，超额 bug 根因）必须已移除
+  assert.ok(!src.includes("incrementSessionLimit"));
+  assert.ok(!src.includes("checkSessionLimit"));
+  assert.ok(!src.includes("getSessionRemainingQuota"));
   // 原 IP 日配额逻辑必须已被移除（否则 session 取代未落地，双配额残留）
   assert.ok(!src.includes("checkRateLimit"));
   assert.ok(!src.includes("getRemainingQuota"));
