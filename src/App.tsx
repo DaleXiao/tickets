@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useT, useTheme, useLang, toggleLang, toggleTheme } from "./i18n";
+import TearTicket from "./TearTicket";
 
 // --- Types ---
 
@@ -231,6 +232,8 @@ export default function App() {
   const [time, setTime] = useState("20:00");
   const [loading, setLoading] = useState(false);
   const [icon, setIcon] = useState<IconResult | null>(null);
+  // SPEC-471：票面是否已撕下（纯展示层状态，仅用于提示文案切换）。
+  const [torn, setTorn] = useState(false);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [total, setTotal] = useState(10);
   const [error, setError] = useState<string | null>(null);
@@ -507,6 +510,7 @@ export default function App() {
     setLoading(true);
     setError(null);
     setIcon(null);
+    setTorn(false);
     // 注：不在此处重置 rateLimited——额度用完后本函数不该被触发（按钮已门禁），
     // 重置会让 UI 误显示「可生成」再被 429 打回。
     setPhase("queued");
@@ -725,9 +729,16 @@ export default function App() {
         {/* 结果 */}
         {!loading && icon && (
           <section className="stage rise">
-            <div className="ticket">
-              <img src={icon.url} alt={title} />
-            </div>
+            <TearTicket
+              key={icon.url}
+              image={icon.url}
+              imageAlt={title}
+              stubAriaLabel={t("tear.stub")}
+              restoreAriaLabel={t("tear.restore")}
+              onTear={() => setTorn(true)}
+              onRestore={() => setTorn(false)}
+            />
+            <p className="status-soft">{torn ? t("tear.restoreHint") : t("tear.hint")}</p>
             <div className="caption serif">
               <div className="caption-title">{title}</div>
               <div className="caption-meta">{showtime}</div>
