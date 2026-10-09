@@ -1,0 +1,155 @@
+/**
+ * TearTicket styles — SPEC-471 / T-790.
+ *
+ * Vendored and modified from react-bits (https://reactbits.dev,
+ * https://github.com/DavidHDev/react-bits), component
+ * src/content/Micro/TearTicket/TearTicket.css.
+ * License: MIT with Commons Clause — use/modification/distribution as part of
+ * an application is permitted; reselling the component itself is not.
+ * Original copyright the react-bits authors.
+ *
+ * Modifications in this port:
+ * - Dropped generic chrome/art/scrim/vertical-orientation/disabled rules; the
+ *   ticket face is the app-generated image itself, clipped into body/stub layers.
+ * - Fibre and edge colours resolve from the app theme variables (--ink), so
+ *   perforation holes and torn edges adapt to light/dark themes.
+ */
+
+.tear-ticket {
+  --tt-w: 600px;
+  --tt-h: 400px;
+  --tt-stub: 114px;
+  --tt-parallax: 6px;
+  --tt-edge-w: 1;
+  --tt-fit: 1;
+  --tt-fibre: color-mix(in srgb, var(--ink) 72%, transparent);
+  --tt-edge: color-mix(in srgb, var(--ink) 18%, transparent);
+
+  position: relative;
+  width: 100%;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tear-ticket__stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--tt-w);
+  height: var(--tt-h);
+  transform: scale(var(--tt-fit));
+  transform-origin: top left;
+  transition: transform 650ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Re-centre after tear: fixed translate relative to the stage container
+   (deterministic basis; page layout below never shifts). */
+.tear-ticket[data-shift="x"] .tear-ticket__stage {
+  transform: translateX(calc(var(--tt-stub) * var(--tt-fit) / 2)) scale(var(--tt-fit));
+}
+
+.tear-ticket[data-instant] .tear-ticket__stage {
+  transition-duration: 0ms;
+}
+
+.tear-ticket__plane {
+  position: absolute;
+  inset: 0;
+}
+
+.tear-ticket__piece {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  outline: none;
+}
+
+.tear-ticket__piece:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.tear-ticket__piece--stub {
+  will-change: transform;
+}
+
+.tear-ticket__edge {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.tear-ticket__edge path {
+  fill: none;
+  stroke: var(--tt-edge);
+  stroke-width: var(--tt-edge-w);
+}
+
+.tear-ticket__paper {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+}
+
+.tear-ticket__paper--stub {
+  cursor: grab;
+  /* Touch scrolling stays captured inside the stub strip only; the rest of
+     the page keeps native scroll behaviour. */
+  touch-action: none;
+}
+
+.tear-ticket[data-grabbing] .tear-ticket__paper--stub {
+  cursor: grabbing;
+}
+
+.tear-ticket[data-used] .tear-ticket__piece--body .tear-ticket__paper {
+  cursor: pointer;
+}
+
+.tear-ticket__img {
+  position: absolute;
+  top: calc(var(--tt-parallax) * -1);
+  left: calc(var(--tt-parallax) * -1);
+  width: calc(100% + var(--tt-parallax) * 2);
+  height: calc(100% + var(--tt-parallax) * 2);
+  max-width: none;
+  object-fit: cover;
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+
+.tear-ticket__fibres {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.tear-ticket__fibres path {
+  fill: none;
+  stroke: var(--tt-fibre);
+  stroke-linecap: round;
+  opacity: 0;
+}
+
+.tear-ticket__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tear-ticket__stage {
+    transition: none;
+  }
+}
